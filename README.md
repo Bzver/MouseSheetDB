@@ -1,1 +1,3 @@
-A script I wrote to manage the transgenomic mice in my lab, to use: run excel_analyzer.py 
+A script to manage the transgenomic mice. Currrently the genotype symbols and mice categories are hardcoded, may implement customizable options through GUI in the future.
+
+

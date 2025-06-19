@@ -1,5 +1,8 @@
 from datetime import date, datetime
 import pandas as pd
+import random
+
+import traceback
 
 def data_preprocess(excel_file, sheet_name):
     """Preprocesses Excel data and returns processed DataFrames"""
@@ -14,28 +17,52 @@ def data_preprocess(excel_file, sheet_name):
         return processed_data
 
     except Exception as e:
-        print(f"An error occurred during Excel preprocessing: {e}")
+        print(f"An error occurred during Excel preprocessing: {e}\n{traceback.format_exc()}")
         return None
-    
+
 def process_sheet_data(df_sheet):
     """Processes sheet data: ffill, calculate ages, etc."""
     today_for_calc = date.today()
     df_data = df_sheet.copy()
     df_data = df_data.dropna(how='all')
-    
+
+    # Load and process birthDate
+    df_data['birthDate'] = pd.to_datetime(df_data['birthDate'], errors='coerce', yearfirst=True, format='%Y-%m-%d')
+
     # Add nuCA for temporary cage storage solution, nuCA == new cage / nuka-ColA
     df_data['nuCA'] = df_data.loc[:, 'cage']
 
-    # Generate an unique identifier for mice
-    df_data['sexLetter'] = df_data['sex'].apply(lambda x: 'M' if x == '♂' else 'F')
-    df_data['ID'] = df_data.apply(
-        lambda row: f"{row['cage']}-{row['toe']}-{row['sexLetter']}".replace('nan', 'UNKNOWN'), 
-        axis='columns'
-    )
-    df_data = df_data.drop('sexLetter', axis='columns')
+    # Identify rows where ID is missing/blank/NaN
+    mask = df_data['ID'].isna() | (df_data['ID'] == '')
+
+    # Only process rows where ID is blank
+    if mask.any():
+        df_data.loc[mask, 'genoID'] = df_data.loc[mask, 'genotype'].apply(process_genotypeID)
+        df_data.loc[mask, 'dobID'] = df_data.loc[mask, 'birthDate'].apply(process_birthDateID)
+        df_data.loc[mask, 'toeID'] = df_data.loc[mask, 'toe'].apply(process_toeID)
+        df_data.loc[mask, 'sexID'] = df_data.loc[mask, 'sex'].apply(process_sexID)
+        df_data.loc[mask, 'cageID'] = df_data.loc[mask, 'nuCA'].apply(process_cageID)
+        df_data.loc[mask, 'ID'] = df_data.loc[mask].apply(
+            lambda row: f"{row['genoID']}{row['dobID']}{row['toeID']}{row['sexID']}{row['cageID']}", 
+            axis='columns'
+        )
+        # Check for duplicate IDs in the newly generated ones
+        new_ids = df_data.loc[mask, 'ID']
+        duplicates = new_ids[new_ids.duplicated()]
+
+        if not duplicates.empty:
+            raise ValueError(f"Duplicate IDs generated: {duplicates.unique().tolist()}")
+            
+        # Check if any new IDs conflict with existing non-blank IDs
+        existing_ids = df_data.loc[~mask, 'ID']
+        conflicting_ids = new_ids[new_ids.isin(existing_ids)]
+        if not conflicting_ids.empty:
+            raise ValueError(f"Generated IDs conflict with existing IDs: {conflicting_ids.unique().tolist()}")
+        
+        # Drop the temporary columns
+        df_data = df_data.drop(['genoID', 'dobID', 'sexID', 'toeID', 'cageID'], axis='columns', errors='ignore')
 
     # Calculate mouse ages
-    df_data['birthDate'] = pd.to_datetime(df_data['birthDate'], errors='coerce', yearfirst=True, format='%Y-%m-%d')
     ages_column_data = df_data['birthDate'].apply(lambda dob: get_age_days(dob, today_for_calc))
     df_data['age'] = ages_column_data
 
@@ -110,40 +137,79 @@ def get_days_since_last_breed(last_breed_val, today_date):
             return "-"
     return "-"
 
+def convert_dates_to_string(df, date_columns):
+    for col in date_columns:
+        if col in df.columns:
+            # Handle datetime objects and pandas NaT
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                df[col] = df[col].dt.strftime('%y-%m-%d')
+            else:
+                # Convert to string and clean missing values
+                df[col] = df[col].apply(
+                    lambda x: x.strftime('%y-%m-%d') 
+                    if isinstance(x, (datetime, pd.Timestamp)) 
+                    else ('' if pd.isna(x) else str(x))
+                )
+    return df
+
 ##########################################################################################################################
 
-def mice_changelog(df, output_path):
-    """Logs mice with cage/nuCA inconsistencies to a new Excel file"""
+def mice_changelog(old_dict, new_dict, output_path):
+    """Logs mice changes to a new Excel file"""
     try:
-        # Validate input
-        if not isinstance(df, pd.DataFrame):
-            raise ValueError("Input must be a pandas DataFrame")
-        
-        df['old_cage'] = df.loc[:,'cage']
-        df['new_cage'] = df.loc[:,'nuCA']
-        required_cols = ['genotype','sex','toe', 'old_cage', 'new_cage']
+        old_dict_by_id = {entry['ID']: entry for entry in old_dict.values()}
+        fields_to_compare = ['nuCA', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate']
+        added_entries = []
+        changed_entries = []
+        for new_entry in new_dict.values():
+            old_entry = old_dict_by_id.get(new_entry['ID'])
+            if not old_entry:
+                added_entries.append(new_entry)
+            elif any(new_entry.get(field) != old_entry.get(field) for field in fields_to_compare):
+                changed_entries.append(new_entry)
 
-        # Filter inconsistent mice (cage ≠ nuCA)
-        mask = df['old_cage'] != df['new_cage']
-        inconsistent = df.loc[mask, required_cols].copy() 
-
-        if inconsistent.empty:
+        if not added_entries and not changed_entries:
             print("No changes found.")
             return None
+        
+        fields_to_keep = ['ID'] + fields_to_compare + ['age', 'breedDays', 'sheet']
+        manual_keep = ['cage', 'nuCA', 'sex', 'toe', 'genotype', 'birthDate']
+        df_added = pd.DataFrame(added_entries).loc[:, fields_to_keep] if added_entries else pd.DataFrame()
+        df_changed = pd.DataFrame(changed_entries).loc[:, fields_to_keep] if changed_entries else pd.DataFrame()
+        df_manual = pd.DataFrame(changed_entries).loc[:,manual_keep] if changed_entries else pd.DataFrame()
+        df_manual = df_manual.loc[df_manual['nuCA'] != df_manual['cage']] if not df_manual.empty else pd.DataFrame()
+
+        # Process date columns in each DataFrame
+        date_cols = ['birthDate', 'breedDate']
+        if not df_added.empty:
+            df_added = convert_dates_to_string(df_added, date_cols)
+        if not df_changed.empty:
+            df_changed = convert_dates_to_string(df_changed, date_cols)
+        if not df_manual.empty:
+            df_manual = convert_dates_to_string(df_manual, ['birthDate'])
 
         # Generate timestamped filename
         timestamp = datetime.now().strftime("%m%d_%H%M%S")
         log_file = f"{output_path}/mice_changelog_{timestamp}.xlsx"
 
-        # Save to Excel (without index)
-        with pd.ExcelWriter(log_file) as writer:
-            inconsistent.to_excel(writer, sheet_name='MCl', index=False)
-        
+        # Save to Excel
+        with pd.ExcelWriter(log_file, engine='xlsxwriter') as writer:
+            if not df_manual.empty:
+                df_manual.to_excel(writer, sheet_name='Manual', index=False)
+            if not df_added.empty:
+                df_added.to_excel(writer, sheet_name='Added', index=False)
+            if not df_changed.empty:
+                df_changed.to_excel(writer, sheet_name='Changed', index=False)
+
+            for sheet_name in writer.sheets:
+                worksheet = writer.sheets[sheet_name]
+                worksheet.autofit()
+
         print(f"Log saved to: {log_file}")
         return log_file
     except Exception as e:
-        print(f"Error logging inconsistent mice: {e}")
-    return None
+        print(f"Error building changelog: {e}\n{traceback.format_exc()}")
+    return
 
 def write_processed_data_to_excel(excel_file, processed_data):
     """Writes processed data to Excel file"""
@@ -180,7 +246,7 @@ def write_processed_data_to_excel(excel_file, processed_data):
             return True
 
     except Exception as e:
-        print(f"An error occurred during Excel writing: {e}")
+        print(f"An error occurred during Excel writing: {e}\n{traceback.format_exc()}")
         return False
 
 def write_formatted_excel(writer, data_dict):
@@ -209,7 +275,7 @@ def write_formatted_excel(writer, data_dict):
     if not data_dict:
         return
     first_row = next(iter(data_dict.values()))
-    excluded_columns = {'nuCA', 'sheet', 'ID'}
+    excluded_columns = {'nuCA', 'sheet'}
     headers = [k for k in first_row.keys() if k not in excluded_columns]
 
     # Write headers
@@ -244,6 +310,108 @@ def write_formatted_excel(writer, data_dict):
                     worksheet.write_boolean(r_idx + 1, c_idx, cell_value, cell_format)
                 else:
                     worksheet.write_string(r_idx + 1, c_idx, str(cell_value), cell_format)
+
+    worksheet.autofit()
+
+#############################################################################################################################
+
+def process_genotypeID(genotype: str) -> str:
+    """Convert genotype to numeric code"""
+    genotype_map = {
+        'hom-PP2A': '1',
+        'PP2A(w/-)': '2',
+        'PP2A(f/w)': '3',
+        'NEX-CRE-PP2A(f/w)': '4',
+        'CMV-CRE': '5',
+        'NEX-CRE': '6',
+        'CMV-CRE-PP2A(f/w)': '7'
+    }
+    return genotype_map.get(str(genotype), str(random.randint(8,9)))
+
+def process_birthDateID(bdate: datetime) -> str:
+    """Convert birthdate to YYMMDD format"""
+    try:
+        if pd.notna(bdate) and not isinstance(bdate,datetime):
+            bdate = pd.to_datetime(bdate, errors='coerce', yearfirst=True, format='%Y-%m-%d')
+        return bdate.strftime("%y%m%d") if pd.notna(bdate) else '000000'
+    except Exception as e:
+        print(f"Error processing birth date: {e}\n{traceback.format_exc()}")
+        return '000000'
+
+def process_toeID(toe: str) -> str:
+    """Extract toe number or generate random if invalid"""
+    toe_str = str(toe)
+    if 'toe' not in toe_str:
+        return str(random.randint(90, 99))
+    
+    toe_num = toe_str.split('toe')[1].split('a')[0]
+    if len(toe_num) == 1:
+        return f'0{toe_num}'
+    elif len(toe_num) == 2:
+        return toe_num
+    else:
+        return str(random.randint(91, 99))
+
+def process_sexID(sex: str) -> str:
+    """Generate sex ID (odd for male, even for female)"""
+    return str(random.choice([1, 3, 5, 7, 9])) if sex == '♂' else str(random.choice([0, 2, 4, 6, 8]))
+
+def process_cageID(cage: str) -> str:
+    """Process cage number with consistent formatting.
+    Rules:
+    1. If no -A- or -B- designation, return random valid 6-digit number
+    2. If -A- or -B- appears AND prefix is 2 or 8:
+       - For -A-: Insert random 1-5
+       - For -B-: Insert random 6-9
+    3. Otherwise return random valid 6-digit number
+    """
+    cage_str = str(cage)
+
+    if '-A-' in cage_str:
+        parts = cage_str.replace('-', '').split('A')
+        prefix = parts[0]
+        if prefix in ('2','8'):
+            suffix = parts[1] if len(parts) > 1 else ''
+            suffix_purged = purge_leading_zeros(suffix.zfill(4),4)
+            return f"{prefix}{random.randint(1, 5)}{suffix_purged}"
+
+    elif '-B-' in cage_str:
+        parts = cage_str.replace('-', '').split('B')
+        prefix = parts[0]
+        if prefix in ('2','8'):
+            suffix = parts[1] if len(parts) > 1 else ''
+            suffix_purged = purge_leading_zeros(suffix.zfill(4),4)
+            return f"{prefix}{random.randint(6, 9)}{suffix_purged}"
+        
+    return str(roll_with_rickroll())
+
+def roll_with_rickroll() -> int:
+    while True:
+        num = random.randint(100000, 999999)
+        # Check if number is in forbidden ranges
+        if (200000 <= num <= 299999) or (800000 <= num <= 899999):
+            continue  # Re-roll
+        else:
+            return f"{num:06d}"  # Valid number
+        
+def purge_leading_zeros(s:str, digits:int):
+    # Truncate if longer than required
+    if len(s) > digits:
+        s = s[-digits:] 
+    else:
+        # Pad with zeros if shorter
+        s = s.zfill(digits)
+    result = []
+    zero_run = True  # Track if we're still in leading zeros
+    for c in s:
+        if c == '0' and zero_run:
+            result.append(str(random.randint(1, 9)))
+        else:
+            result.append(c)
+            zero_run = False
+    return ''.join(result)[:digits].ljust(digits, '0')
+
+#############################################################################################################################
                 
 class StyleRule:
     MALE_BG_COLOR = '#ADD8E6'   # Light Blue (hex code for lightblue)
@@ -263,6 +431,7 @@ class StyleRule:
                 if latest_breed_val > 90:
                     styles['font_color'] = cls.NON_PERFORMING_FONT_COLOR
             except Exception:
+                print(f"Error in get_data_row_style (breedDays): {traceback.format_exc()}")
                 pass
 
         if not styles['font_color']:

@@ -31,6 +31,8 @@ class MouseVisualizer:
         self.mpl_canvas = None
         self.selected_mouse = None
         self.leaving_timer = None
+        self.is_editing = False # New: Flag to indicate if an edit window is open
+        self.edited_mouse_artist = None # New: Store the artist of the mouse being edited
 
         if self.canvas_widget:
             self.canvas_widget.destroy()
@@ -125,7 +127,6 @@ class MouseVisualizer:
         ax.set_title(f"Cage Monitor - Sheet: {self.sheet_name}")
         ax.axis('off')
 
-        # IMPORTANT: Clear these dictionaries to re-populate them based on current mouseDB state
         self.regular_cage_mice = {}
         self.waiting_room_mice = {}
         self.death_row_mice = {}
@@ -198,7 +199,6 @@ class MouseVisualizer:
         ax.add_patch(wr_rect)
         ax.text(wr_x, wr_y + wr_height/2 + 0.2, "Waiting Room", ha='center', va='bottom', color='blue', fontsize=12)
         # Pass values from the waiting_room_mice dictionary to _plot_mice_in_area
-        # Since waiting_room_mice now stores single dicts, convert to a list of dicts for plotting
         self._plot_mice_in_area(ax, list(self.waiting_room_mice.values()), wr_x, wr_y, wr_width, wr_height)
 
         # Death Row
@@ -207,7 +207,6 @@ class MouseVisualizer:
         ax.add_patch(dr_rect)
         ax.text(dr_x, dr_y + dr_height/2 + 0.2, "Death Row", ha='center', va='bottom', color='purple', fontsize=12)
         # Pass values from the death_row_mice dictionary to _plot_mice_in_area
-        # Since death_row_mice now stores single dicts, convert to a list of dicts for plotting
         self._plot_mice_in_area(ax, list(self.death_row_mice.values()), dr_x, dr_y, dr_width, dr_height)
 
     def calculate_cage_positions(self, num_cages):
@@ -272,28 +271,47 @@ class MouseVisualizer:
             # Determine genotype abbreviation and color
             geno_text = ""
             geno_color = 'black'
-            if "CMV-CRE" in genotype:
-                geno_text += "C"
-            if "NEX-CRE" in genotype:
-                geno_text += "N"
-            
-            # Using a more structured approach for PP2A genotypes
-            if "hom-PP2A" in genotype:
-                geno_text += "P"
-                geno_color = 'yellow'
-            elif "PP2A(f/w)" in genotype:
-                geno_text += "P"
-                geno_color = 'green'
-            elif "PP2A(w/-)" in genotype:
-                geno_text += "P"
+            valid_identifier = False
+
+            # Define genotype components we're looking for
+            target_components = {
+                'CMV-CRE': 'C',
+                'NEX-CRE': 'N',
+                'wt': 'wt',
+                'hom-PP2A': ('P', 'gold'),
+                'PP2A(f/w)': ('P', 'olivedrab'),
+                'PP2A(w/-)': ('P', 'chocolate'),
+                'PP2A': 'P', # PP2A fallback
+            }
+
+            # Process genotype string
+            for component, marker in target_components.items():
+                if component in genotype:
+                    valid_identifier = True
+                    if component == 'wt':  # wt overrides other markers
+                        geno_text = 'wt'
+                        geno_color = 'black'
+                        break
+                    elif isinstance(marker, tuple):  # Special PP2A cases with colors
+                        geno_text += marker[0]
+                        geno_color = marker[1]
+                    else:  # Simple markers
+                        if component != 'PP2A' and marker not in geno_text:  # Avoid duplicates
+                            geno_text += marker
+                        if component == 'PP2A' and not any(x in genotype for x in ['hom-','(f/w)','w/-']): # Avoid duplicates for PP2A
+                            geno_text += marker
+
+            # Handle invalid genotypes
+            if not valid_identifier:
+                geno_text = "?"
                 geno_color = 'red'
-            elif "PP2A(f/w/-)" in genotype:
-                geno_text += "P"
-                geno_color = 'grey'
-            elif "PP2A" in genotype:
-                geno_text += "P"
-            elif "wt" in genotype:
-                geno_text = "wt"
+            elif not geno_text:
+                geno_text = "?"
+                geno_color = 'red'
+
+            # Ensure wt is clean (no additional letters)
+            if geno_text == 'wt':
+                geno_color = 'black'
 
             mouse_dot, = ax.plot(mx, my, marker='o', markersize=15, color=color, picker=5)
             ax.text(mx, my, geno_text, ha='center', va='center', color=geno_color, fontsize=14)
@@ -302,12 +320,10 @@ class MouseVisualizer:
     #########################################################################################################################
 
     def on_hover(self, event):
-        if event.inaxes and event.xdata is not None and event.ydata is not None:
-            artist_found = False
+        if event.inaxes and event.xdata is not None and event.ydata is not None and not self.is_editing:
             # Check all mouse artists
             for artist, mouse in self.mouse_artists:
                 if artist.contains(event)[0]:
-                    artist_found = True
                     # Cancel pending close timer if exists
                     if self.leaving_timer:
                         self.master.after_cancel(self.leaving_timer)
@@ -332,30 +348,10 @@ class MouseVisualizer:
                     self.mpl_canvas.draw_idle()
 
                     # Show metadata window
-                    sex = mouse.get('sex', 'N/A')
-                    toe = mouse.get('toe', 'N/A')
-                    age = mouse.get('age', 'N/A')
-                    genotype = mouse.get('genotype', 'N/A')
-                    
-                    metadata_window = tk.Toplevel(self.master)
-                    metadata_window.title("Mouse Metadata")
-                    metadata_window.geometry("+100+100") 
-
-                    style = ttk.Style()
-                    style.configure("Metadata.TLabel", font=("Arial", 9), padding=5)
-                    message = f"Sex: {sex}   Toe: {toe}\nAge: {age}d ({int(age) // 7}w{int(age) % 7}d)\n-------------------------- \n{genotype}" if isinstance(age, (int, float)) else f"Sex: {sex}   Toe: {toe}\nAge: {age}\n-------------------------- \n{genotype}"
-                    label = ttk.Label(metadata_window, text=message, style="Metadata.TLabel")
-                    label.pack(padx=10, pady=10)
-
-                    self.current_metadata_window = metadata_window
+                    self._show_metadata_window(mouse)
                     self.last_hovered_mouse = mouse
                     return
-            
-            # No artist found - schedule window close
-            if not artist_found:
-                self.schedule_close_metadata_window()
-        else:
-            # Mouse outside axes - schedule close
+
             self.schedule_close_metadata_window()
 
     def schedule_close_metadata_window(self):
@@ -364,7 +360,14 @@ class MouseVisualizer:
             self.leaving_timer = self.master.after(100, self.close_metadata_window)
 
     def close_metadata_window(self):
-        """Close metadata window and clear highlights"""
+        """Close metadata window and clear highlights, unless in editing mode."""
+        if self.is_editing:
+            # If in editing mode, only destroy the metadata window, but keep the highlight
+            if self.current_metadata_window:
+                self.current_metadata_window.destroy()
+                self.current_metadata_window = None
+            return # Do not clear highlight or last_hovered_mouse
+
         if self.current_metadata_window:
             self.current_metadata_window.destroy()
             self.current_metadata_window = None
@@ -375,7 +378,71 @@ class MouseVisualizer:
         self.last_hovered_mouse = None
         self.leaving_timer = None
 
+    def set_editing_state(self, is_editing, mouse_id=None):
+        """
+        Sets the editing state and manages the highlight and metadata window.
+        If is_editing is True, the highlight for the specified mouse_id will persist.
+        If is_editing is False, the highlight and metadata window will be cleared.
+        """
+        self.is_editing = is_editing
+        if is_editing and mouse_id:
+            # Find the artist for the edited mouse and ensure it's highlighted
+            for artist, mouse in self.mouse_artists:
+                if mouse.get('ID') == mouse_id:
+                    self.edited_mouse_artist = artist
+                    # Ensure highlight is drawn
+                    if self.highlight_circle:
+                        self.highlight_circle.remove()
+                    x, y = artist.get_xdata()[0], artist.get_ydata()[0]
+                    self.highlight_circle = patches.Circle((x, y), radius=0.2,
+                                                           color='red', fill=False, linewidth=2)
+                    self.ax.add_patch(self.highlight_circle)
+                    self.mpl_canvas.draw_idle()
+                    if self.current_metadata_window:
+                        self.current_metadata_window.destroy()
+                        self.current_metadata_window = None
+                    break
+        else:
+            # If not editing, clear any persistent highlight and metadata window
+            if self.highlight_circle:
+                self.highlight_circle.remove()
+                self.highlight_circle = None
+            if self.current_metadata_window:
+                self.current_metadata_window.destroy()
+                self.current_metadata_window = None
+            self.edited_mouse_artist = None
+            self.last_hovered_mouse = None
+            self.mpl_canvas.draw_idle()
+
     #########################################################################################################################
+
+    def _show_metadata_window(self, mouse):
+        """Displays the metadata window for a given mouse."""
+        if self.current_metadata_window:
+            self.current_metadata_window.destroy()
+
+        sex = mouse.get('sex', 'N/A')
+        toe = mouse.get('toe', 'N/A')
+        age = mouse.get('age', 'N/A')
+        genotype = mouse.get('genotype', 'N/A')
+        mouseID = mouse.get('ID', 'N/A')
+
+        if len(genotype) < 15:
+            genotype = genotype.center(25,' ') # Padded the short genotype for a centered look
+        
+        metadata_window = tk.Toplevel(self.master)
+        metadata_window.title("Mouse Metadata")
+        metadata_window.geometry("+100+100")
+
+        style = ttk.Style()
+        style.configure("Metadata.TLabel", font=("Arial", 9), padding=5)
+        separ_geno = '------GENOTYPE------'
+        separ_ID = '------------I-D------------'
+        message = (f"Sex: {sex}   Toe: {toe}\nAge: {age}d ({int(age) // 7}w{int(age) % 7}d)\n{separ_geno}\n{genotype}\n{separ_ID}\n{mouseID}")
+        label = ttk.Label(metadata_window, text=message, style="Metadata.TLabel")
+        label.pack(padx=10, pady=10)
+
+        self.current_metadata_window = metadata_window
 
     def on_click(self, event):
         if event.button == 1 and event.inaxes:
@@ -393,10 +460,12 @@ class MouseVisualizer:
         is_on_death_row = self.selected_mouse.get('nuCA') == 'Death Row'
 
         if not is_in_waiting_room and not is_on_death_row:
+            menu.add_command(label="Edit mouse entry", command=self.analyzer.edit_mouse_entries)
             menu.add_command(label="Transfer to current cages", command=self.transfer_to_existing_cage)
             menu.add_command(label="Transfer to waiting room", command=self.transfer_to_waiting_room)
             menu.add_command(label="Transfer to Death Row", command=self.transfer_to_death_row)
         elif is_in_waiting_room:
+            menu.add_command(label="Edit mouse entry", command=self.analyzer.edit_mouse_entries)
             menu.add_command(label="Transfer to current cages", command=self.transfer_from_waiting_room)
             menu.add_command(label="Transfer to a new cage", command=self.transfer_to_new_cage)
             menu.add_command(label="Transfer to Death Row", command=self.transfer_to_death_row)
@@ -470,7 +539,7 @@ class MouseVisualizer:
                         self.regular_cage_mice[taCA] = []
                     self.regular_cage_mice[taCA].append(self.selected_mouse)
                     
-                    self.update_callback(self.mouseDB) # Call the callback to update the database
+                    self.update_callback() # Call the callback to update the database
                 self.analyzer.redraw_canvas()
                 self.close_metadata_window()
                 dialog.destroy()
@@ -496,7 +565,7 @@ class MouseVisualizer:
             self.selected_mouse['nuCA'] = 'Waiting Room'
             self.selected_mouse['sheet'] = 'Waiting Room'
             self.waiting_room_mice[self.selected_mouse['ID']] = self.selected_mouse # Store the mouse directly
-            self.update_callback(self.mouseDB) # Call the callback to update the database
+            self.update_callback() # Call the callback to update the database
         self.analyzer.redraw_canvas()
         self.close_metadata_window()
 
@@ -548,7 +617,7 @@ class MouseVisualizer:
                         self.regular_cage_mice[taCA] = []
                     self.regular_cage_mice[taCA].append(self.selected_mouse)
                     
-                    self.update_callback(self.mouseDB) # Call the callback to update the database
+                    self.update_callback() # Call the callback to update the database
                 self.analyzer.redraw_canvas()
                 self.close_metadata_window()
                 dialog.destroy()
@@ -582,11 +651,24 @@ class MouseVisualizer:
             new_cage_entry.focus_set() # Set focus to the entry widget
 
             def validate_and_transfer():
-                entered_cage_suffix = new_cage_entry.get().strip()
-                new_cage_no = prefix + entered_cage_suffix
+                entered_suffix = new_cage_entry.get().strip()
+                new_cage_no = prefix + entered_suffix
+                digits_only = entered_suffix.replace("-","")
 
-                if not entered_cage_suffix:
+                if not entered_suffix:
                     messagebox.showwarning("Invalid Input", "Please enter the cage number.", parent=dialog)
+                    return
+                if len(digits_only) == 0:
+                    messagebox.showwarning("Invalid Input", "Must include at least one digit.", parent=dialog)
+                    return
+                if not digits_only.isdigit():
+                    messagebox.showwarning("Invalid Input", "Only numbers and '-' are allowed.", parent=dialog)
+                    return
+                if len(digits_only) > 4:
+                    messagebox.showwarning("Invalid Input", "Can only include four digits at most.", parent=dialog)
+                    return
+                if not entered_suffix[0].isdigit() or not entered_suffix[-1].isdigit():
+                    messagebox.showwarning("Invalid Input", "Must start and end with digits.", parent=dialog)
                     return
                 
                 # Check if the new cage number already exists in regular cages
@@ -612,7 +694,7 @@ class MouseVisualizer:
                     self.regular_cage_mice[new_cage_no] = []
                 self.regular_cage_mice[new_cage_no].append(self.selected_mouse)
                 
-                self.update_callback(self.mouseDB) # Update the main DataFrame for the current sheet
+                self.update_callback() # Update the main DataFrame for the current sheet
                 self.analyzer.redraw_canvas()
                 self.close_metadata_window()
                 dialog.destroy()
@@ -636,7 +718,7 @@ class MouseVisualizer:
             self.selected_mouse['nuCA'] = 'Death Row'
             self.selected_mouse['sheet'] = 'Death Row' # Set sheet to Death Row
             self.death_row_mice[self.selected_mouse['ID']] = self.selected_mouse # Store the mouse directly
-            self.update_callback(self.mouseDB) # Call the callback to update the database
+            self.update_callback() # Call the callback to update the database
         self.analyzer.redraw_canvas()
         self.close_metadata_window()
 
@@ -666,7 +748,7 @@ class MouseVisualizer:
                     self.regular_cage_mice[original_cage] = []
                 self.regular_cage_mice[original_cage].append(self.selected_mouse)
             
-            self.update_callback(self.mouseDB) # Call the callback to update the database
+            self.update_callback() # Call the callback to update the database
         self.analyzer.redraw_canvas()
         self.close_metadata_window()
         
