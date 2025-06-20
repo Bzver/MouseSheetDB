@@ -651,25 +651,36 @@ class MouseVisualizer:
             new_cage_entry.focus_set() # Set focus to the entry widget
 
             def validate_and_transfer():
-                entered_suffix = new_cage_entry.get().strip()
-                new_cage_no = prefix + entered_suffix
-                digits_only = entered_suffix.replace("-","")
-
-                if not entered_suffix:
+                entered_name = new_cage_entry.get().strip()
+                
+                if not entered_name:
                     messagebox.showwarning("Invalid Input", "Please enter the cage number.", parent=dialog)
                     return
-                if len(digits_only) == 0:
-                    messagebox.showwarning("Invalid Input", "Must include at least one digit.", parent=dialog)
-                    return
-                if not digits_only.isdigit():
-                    messagebox.showwarning("Invalid Input", "Only numbers and '-' are allowed.", parent=dialog)
-                    return
-                if len(digits_only) > 4:
-                    messagebox.showwarning("Invalid Input", "Can only include four digits at most.", parent=dialog)
-                    return
-                if not entered_suffix[0].isdigit() or not entered_suffix[-1].isdigit():
+                if not entered_name[0].isdigit() or not entered_name[-1].isdigit():
                     messagebox.showwarning("Invalid Input", "Must start and end with digits.", parent=dialog)
                     return
+                
+                if self.sheet_name == 'BACKUP':
+                    if '-B-' in entered_name:
+                        prefix = entered_name.split("-B-")[0]
+                        entered_suffix = entered_name.split("-B-")[1]
+                    else:
+                        entered_suffix = entered_name
+                else: entered_suffix = entered_name
+
+                digits_only = entered_suffix.replace("-","")
+
+                if len(digits_only) == 0:
+                    messagebox.showwarning("Invalid Input", "Must include at least one digit sans prefix.", parent=dialog)
+                    return
+                if not digits_only.isdigit():
+                    messagebox.showwarning("Invalid Input", "Only numbers and '-' are allowed sans prefix.", parent=dialog)
+                    return 
+                if len(digits_only) > 4:
+                    messagebox.showwarning("Invalid Input", "Can only include four digits at most sans prefix.", parent=dialog)
+                    return
+                
+                new_cage_no = prefix + entered_suffix
                 
                 # Check if the new cage number already exists in regular cages
                 if new_cage_no in self.regular_cage_mice: # Check if key exists in the dict
