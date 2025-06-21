@@ -1,6 +1,6 @@
 # Transgenomic Mice Colony Management Tool
 
-A tool for managing transgenic mouse colonies with currently hardcoded genotype symbols and categories. Future implementations may include customizable options to accomodate other genotypes.
+A tool for managing small transgenic mouse colonies (less than 500 mice) with currently hardcoded genotype symbols and categories. Future implementations may include customizable options to accomodate other genotypes.
 
 ## Screenshots
 
@@ -29,5 +29,6 @@ A tool for managing transgenic mouse colonies with currently hardcoded genotype 
 - **Status Save**: Save and load colony status changes
 ![Generated Changelog](https://github.com/user-attachments/assets/8c4e70dc-214d-4841-b83a-d8c698ae939c)
 
-## Future Enhancements
+## To-do
 - Customizable genotype symbols and categories via GUI
+- Add mice lineage record and visualization
