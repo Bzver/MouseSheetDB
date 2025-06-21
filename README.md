@@ -27,6 +27,7 @@ A tool for managing transgenic mouse colonies with current hardcoded genotype sy
   ![Transfer Interface](https://github.com/user-attachments/assets/297ac91c-4cbd-41fd-a1de-2b1d2bda5c34)
 
 - **Status Save**: Save and load colony status changes
+![Generated Changelog](https://github.com/user-attachments/assets/8c4e70dc-214d-4841-b83a-d8c698ae939c)
 
 ## Future Enhancements
 - Customizable genotype symbols and categories via GUI
