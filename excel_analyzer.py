@@ -3,7 +3,7 @@ import shutil
 from datetime import datetime
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 from tkcalendar import Calendar
 
 import copy
@@ -64,18 +64,21 @@ class ExcelAnalyzer:
         self.visualizer = None
         self.file_path = None
         self.backup_file = None
+
         self.processed_data = None
         self.mouseDB = None
+
         self.sheet_name = None
         self.sheet_index = 0
         self.sheet_names = ['BACKUP', 'NEX + PP2A', 'CMV + PP2A']
+        
         self.canvas_widget = None
         self.last_action = "analyze"
         self.saveStatus = True
         self.edit_window = None
         self.today = datetime.now().date()
 
-        self.isDebugging = False
+        self.isDebugging = True
 
     #########################################################################################################################
 
@@ -119,19 +122,18 @@ class ExcelAnalyzer:
             temp_excel = pd.ExcelFile(self.file_path)
             if 'MDb' not in temp_excel.sheet_names:
                 raise Exception(f"No 'MDb' among sheets in chosen excel file. Check your chosen file.")
-            sheet_name = 'MDb'
             temp_excel.close()
             
             # Validate required columns exist in each sheet
-            required_columns = ['ID', 'cage', 'sex', 'toe', 'genotype', 'birthDate', 'age', 'breedDate', 'breedDays']
+            required_columns = ['ID', 'cage', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate']
 
-            df = pd.read_excel(self.file_path, sheet_name)
+            df = pd.read_excel(self.file_path, 'MDb')
             missing = [col for col in required_columns if col not in df.columns]
             if missing:
                 raise Exception(f"Missing required columns {missing}")
             
-            # Preprocess MDb sheet using excel_painter
-            self.processed_data = excel_painter.data_preprocess(self.file_path, sheet_name)
+            # Preprocess MDb using excel_painter
+            self.processed_data = excel_painter.data_preprocess(self.file_path, 'MDb')
             self.mouseDB = copy.deepcopy(self.processed_data) # Original data serving as change tracker
 
             if self.processed_data is None:

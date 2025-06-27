@@ -1,5 +1,6 @@
 from datetime import date, datetime
 import pandas as pd
+import numpy as np
 import random
 
 import traceback
@@ -8,10 +9,10 @@ def data_preprocess(excel_file, sheet_name):
     """Preprocesses Excel data and returns processed DataFrames"""
     try:
         excel_file_obj = pd.ExcelFile(excel_file)
-        mDb_df = excel_file_obj.parse(sheet_name)
+        sheet_df = excel_file_obj.parse(sheet_name)
         excel_file_obj.close()
 
-        df_processed = process_sheet_data(mDb_df)
+        df_processed = process_sheet_data(sheet_df)
         processed_data = df_processed.to_dict('index')
         
         return processed_data
@@ -21,10 +22,16 @@ def data_preprocess(excel_file, sheet_name):
         return None
 
 def process_sheet_data(df_sheet):
-    """Processes sheet data: ffill, calculate ages, etc."""
+    """Processes sheet data: fills missing values, calculates ages, assigns sheet categories, and generates IDs."""
     today_for_calc = date.today()
     df_data = df_sheet.copy()
     df_data = df_data.dropna(how='all')
+
+    # Add optional cols if not already there
+    optional_columns = ['age','breedDays','parentF','parentM']
+    for col in optional_columns:
+        if col not in df_data:
+            df_data[col] = '-'
 
     # Load and process birthDate
     df_data['birthDate'] = pd.to_datetime(df_data['birthDate'], errors='coerce', yearfirst=True, format='%Y-%m-%d')
@@ -33,28 +40,28 @@ def process_sheet_data(df_sheet):
     df_data['nuCA'] = df_data.loc[:, 'cage']
 
     # Identify rows where ID is missing/blank/NaN
-    mask = df_data['ID'].isna() | (df_data['ID'] == '')
+    ID_mask = df_data['ID'].isna() | (df_data['ID'] == '')
 
     # Only process rows where ID is blank
-    if mask.any():
-        df_data.loc[mask, 'genoID'] = df_data.loc[mask, 'genotype'].apply(process_genotypeID)
-        df_data.loc[mask, 'dobID'] = df_data.loc[mask, 'birthDate'].apply(process_birthDateID)
-        df_data.loc[mask, 'toeID'] = df_data.loc[mask, 'toe'].apply(process_toeID)
-        df_data.loc[mask, 'sexID'] = df_data.loc[mask, 'sex'].apply(process_sexID)
-        df_data.loc[mask, 'cageID'] = df_data.loc[mask, 'nuCA'].apply(process_cageID)
-        df_data.loc[mask, 'ID'] = df_data.loc[mask].apply(
+    if ID_mask.any():
+        df_data.loc[ID_mask, 'genoID'] = df_data.loc[ID_mask, 'genotype'].apply(process_genotypeID)
+        df_data.loc[ID_mask, 'dobID'] = df_data.loc[ID_mask, 'birthDate'].apply(process_birthDateID)
+        df_data.loc[ID_mask, 'toeID'] = df_data.loc[ID_mask, 'toe'].apply(process_toeID)
+        df_data.loc[ID_mask, 'sexID'] = df_data.loc[ID_mask, 'sex'].apply(process_sexID)
+        df_data.loc[ID_mask, 'cageID'] = df_data.loc[ID_mask, 'nuCA'].apply(process_cageID)
+        df_data.loc[ID_mask, 'ID'] = df_data.loc[ID_mask].apply(
             lambda row: f"{row['genoID']}{row['dobID']}{row['toeID']}{row['sexID']}{row['cageID']}", 
             axis='columns'
         )
         # Check for duplicate IDs in the newly generated ones
-        new_ids = df_data.loc[mask, 'ID']
+        new_ids = df_data.loc[ID_mask, 'ID']
         duplicates = new_ids[new_ids.duplicated()]
 
         if not duplicates.empty:
             raise ValueError(f"Duplicate IDs generated: {duplicates.unique().tolist()}")
             
         # Check if any new IDs conflict with existing non-blank IDs
-        existing_ids = df_data.loc[~mask, 'ID']
+        existing_ids = df_data.loc[~ID_mask, 'ID']
         conflicting_ids = new_ids[new_ids.isin(existing_ids)]
         if not conflicting_ids.empty:
             raise ValueError(f"Generated IDs conflict with existing IDs: {conflicting_ids.unique().tolist()}")
@@ -62,32 +69,28 @@ def process_sheet_data(df_sheet):
         # Drop the temporary columns
         df_data = df_data.drop(['genoID', 'dobID', 'sexID', 'toeID', 'cageID'], axis='columns', errors='ignore')
 
-    # Calculate mouse ages
-    ages_column_data = df_data['birthDate'].apply(lambda dob: get_age_days(dob, today_for_calc))
-    df_data['age'] = ages_column_data
+    # Apply categorical ident (sheet)
+    df_data['sheet'] = np.select(
+    [
+        df_data['cage'].str.startswith('2-A-'),
+        df_data['cage'].str.startswith('8-A-'),
+        df_data['cage'] == 'Memorial'
+    ],
+    ['NEX + PP2A', 'CMV + PP2A', 'Memorial'],
+    default='BACKUP'
+    )
 
-    # Apply categorical ident
-    cond_nexPP2A = df_data['cage'].astype(str).str.startswith('2-A-')
-    cond_cmvPP2A = df_data['cage'].astype(str).str.startswith('8-A-')
-
-    ind_nexPP2A = df_data.index[cond_nexPP2A].tolist()
-    ind_cmvPP2A = df_data.index[cond_cmvPP2A].tolist()
-    ind_BACKUP = df_data.index[~cond_nexPP2A & ~cond_cmvPP2A].tolist()
-
-    df_nexPP2A = df_data.loc[ind_nexPP2A]
-    df_cmvPP2A = df_data.loc[ind_cmvPP2A]
-    df_BACKUP = df_data.loc[ind_BACKUP]
-
-    df_nexPP2A['sheet'] = 'NEX + PP2A'
-    df_cmvPP2A['sheet'] = 'CMV + PP2A'
-    df_BACKUP['sheet'] = 'BACKUP'
-
-    # Calculate days since last breed for non BACKUP entries only
-    df_notBACKUP = pd.concat([df_nexPP2A,df_cmvPP2A],ignore_index=True)
-    df_notBACKUP['breedDate'] = pd.to_datetime(df_notBACKUP['breedDate'], errors='coerce', yearfirst=True, format='%Y-%m-%d')
-    days_since_breed_data = df_notBACKUP['breedDate'].apply(lambda lb: get_days_since_last_breed(lb, today_for_calc))
-    df_notBACKUP['breedDays'] = days_since_breed_data
-    df_data = pd.concat([df_BACKUP,df_notBACKUP],ignore_index=True)
+    # Calculate mouse ages for alive mice
+    alive_mask = df_data['sheet'] != 'Memorial'
+    if alive_mask.any():
+        df_data.loc[alive_mask, 'age'] = df_data.loc[alive_mask, 'birthDate'].apply(
+            lambda dob: get_age_days(dob, today_for_calc))
+    
+    # Calculate last breed days for alive and non-BACKUP mice
+    breeding_mask = ~df_data['sheet'].isin(['Memorial', 'BACKUP'])
+    if breeding_mask.any():
+        df_data.loc[breeding_mask, 'breedDays'] = df_data.loc[breeding_mask, 'breedDate'].apply(
+            lambda bd: get_days_since_last_breed(bd, today_for_calc))
 
     return df_data
 
@@ -158,7 +161,7 @@ def mice_changelog(old_dict, new_dict, output_path):
     """Logs mice changes to a new Excel file"""
     try:
         old_dict_by_id = {entry['ID']: entry for entry in old_dict.values()}
-        fields_to_compare = ['nuCA', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate']
+        fields_to_compare = ['nuCA', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate', 'parentF', 'parentM']
         added_entries = []
         changed_entries = []
         for new_entry in new_dict.values():
@@ -213,105 +216,68 @@ def mice_changelog(old_dict, new_dict, output_path):
 
 def write_processed_data_to_excel(excel_file, processed_data):
     """Writes processed data to Excel file"""
-    # Create a new dictionary to hold mice that will be written to Excel. Mice in 'Death Row' will be excluded and executed.
+    # Create a new dictionary to hold mice that will be written to Excel. Mice in 'Death Row' will be placed into Memorial sheet.
     mice_to_write = {}
+    parental_mice = set()
+    parental_mice_live =  set()
+    living_mice = set()
     
     for mouse_id, mouse_info in processed_data.items():
         if mouse_info.get('nuCA') == 'Death Row':
-            print(f"Skipping Death Row mouse {mouse_id}")
-            continue
-        current_mouse_info = mouse_info.copy()
-        if current_mouse_info.get('sheet') == 'BACKUP':
-            current_mouse_info['breedDate'] = '-'
-            current_mouse_info['breedDays'] = '-'
-        elif current_mouse_info.get('sheet') != 'BACKUP':
-            breed_date = current_mouse_info.get('breedDate')
+            print(f"Death Row mouse {mouse_id} transfer to Memorial")
+            mouse_info['nuCA'] = 'Memorial'
+            mouse_info['sheet'] = 'Memorial'
+        if mouse_info.get('sheet') == 'BACKUP':
+            mouse_info['breedDate'] = '-'
+            mouse_info['breedDays'] = '-'
+        elif mouse_info.get('sheet') != 'BACKUP':
+            breed_date = mouse_info.get('breedDate')
             # Try to parse as datetime if it's a string
             if isinstance(breed_date, str):
                 breed_date = pd.to_datetime(breed_date, errors='coerce', yearfirst=True, format='%Y-%m-%d')
             # Only update if we couldn't parse a valid date
             if pd.isna(breed_date):
-                current_mouse_info['breedDate'] = date.today()
-                current_mouse_info['breedDays'] = 0
+                mouse_info['breedDate'] = date.today()
+                mouse_info['breedDays'] = 0
+        current_parental_mice = mouse_info['parentF'] + mouse_info['parentM'] 
+        parental_mice.add(current_parental_mice)
+        if mouse_info['sheet'] != 'Memorial':
+            parental_mice_live.add(current_parental_mice)
+            living_mice.add(mouse_info['ID'])
 
-        current_mouse_info['cage'] = current_mouse_info['nuCA']
-        mice_to_write[mouse_id] = current_mouse_info
+    # Perform cleanup on memorial
+    for mouse_id, mouse_info in processed_data.items():
+        isAncient = mouse_info['age'] > 365
+        hasLivingParent = mouse_info['parentF'] in living_mice or mouse_info['parentM'] in living_mice
+        isParent = mouse_info['ID'] in parental_mice_live # is parent of still living mice
+        if mouse_info.get('nuCA') == 'Memorial' and isAncient and not hasLivingParent and not isParent:
+            print(f"Cleaned up mouse {mouse_id}, which has no living parents or children and is born more than 365 days ago.")
+            continue
+        cleaned_mouse_info = mouse_info.copy()
+        cleaned_mouse_info['cage'] = cleaned_mouse_info['nuCA']
+        mice_to_write[mouse_id] = cleaned_mouse_info
 
     # Sort mice by cage number
     sorted_mice = dict(sorted(mice_to_write.items(),key=lambda x: x[1].get('cage')))
+    df_sorted = pd.DataFrame.from_dict(sorted_mice, orient='index')
+
+    # Format the dates into strings so they won't get ruined by Excel
+    date_cols = ['birthDate', 'breedDate']
+    df_format = convert_dates_to_string(df_sorted, date_cols)
+
+    # Remove the temporary columns
+    cols_to_keep = ['ID', 'cage', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate', 'parentF', 'parentM']
+    df_final = df_format.loc[:, cols_to_keep]
 
     try:
         with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
-            write_formatted_excel(writer, sorted_mice)
+            df_final.to_excel(writer, sheet_name='MDb', index=False)
+            writer.sheets['MDb'].autofit()
             return True
 
     except Exception as e:
         print(f"An error occurred during Excel writing: {e}\n{traceback.format_exc()}")
         return False
-
-def write_formatted_excel(writer, data_dict):
-    """Writes formatted data to Excel worksheet from dictionary"""
-    workbook = writer.book
-    worksheet = workbook.add_worksheet('MDb')
-    writer.sheets['MDb'] = worksheet
-
-    # Format caching
-    formats_cache = {}
-
-    def get_cached_format(workbook, font_color, bg_color, num_format='general'):
-        key = (font_color, bg_color, num_format)
-        if key not in formats_cache:
-            fmt_props = {}
-            if font_color:
-                fmt_props['font_color'] = font_color
-            if bg_color:
-                fmt_props['bg_color'] = bg_color
-            if num_format != 'general':
-                fmt_props['num_format'] = num_format
-            formats_cache[key] = workbook.add_format(fmt_props)
-        return formats_cache[key]
-
-    # Get headers from first dict value, excluding temporary columns
-    if not data_dict:
-        return
-    first_row = next(iter(data_dict.values()))
-    excluded_columns = {'nuCA', 'sheet'}
-    headers = [k for k in first_row.keys() if k not in excluded_columns]
-
-    # Write headers
-    header_format = workbook.add_format({'bold': True})
-    for col_idx, col_name in enumerate(headers):
-        worksheet.write(0, col_idx, col_name, header_format)
-
-    # Write data rows
-    for r_idx, mouse_data in enumerate(data_dict.values()):
-        row_styles = StyleRule.get_data_row_style(mouse_data)
-        bg_color = row_styles['bg_color']
-        font_color = row_styles['font_color']
-
-        for c_idx, col_name in enumerate(headers):
-            cell_value = mouse_data.get(col_name)
-            current_num_format = 'general'
-
-            if col_name in ['birthDate', 'breedDate']:
-                if pd.notna(cell_value) and isinstance(cell_value, (pd.Timestamp, datetime, date)):
-                    current_num_format = 'yy-mm-dd'
-
-            cell_format = get_cached_format(workbook, font_color, bg_color, current_num_format)
-
-            if current_num_format == 'yy-mm-dd' and pd.notna(cell_value):
-                worksheet.write_datetime(r_idx + 1, c_idx, cell_value, cell_format)
-            else:
-                if pd.isna(cell_value):
-                    worksheet.write_string(r_idx + 1, c_idx, '', cell_format)
-                elif isinstance(cell_value, (int, float)):
-                    worksheet.write_number(r_idx + 1, c_idx, cell_value, cell_format)
-                elif isinstance(cell_value, bool):
-                    worksheet.write_boolean(r_idx + 1, c_idx, cell_value, cell_format)
-                else:
-                    worksheet.write_string(r_idx + 1, c_idx, str(cell_value), cell_format)
-
-    worksheet.autofit()
 
 #############################################################################################################################
 
@@ -410,43 +376,3 @@ def purge_leading_zeros(s:str, digits:int):
             result.append(c)
             zero_run = False
     return ''.join(result)[:digits].ljust(digits, '0')
-
-#############################################################################################################################
-                
-class StyleRule:
-    MALE_BG_COLOR = '#ADD8E6'   # Light Blue (hex code for lightblue)
-    FEMALE_BG_COLOR = '#FFB6C1' # Light Pink (hex code for lightpink)
-    NON_PERFORMING_FONT_COLOR = '#FF0000' # Red (hex code for red)
-    SENILE_FONT_COLOR = '#808080' # Gray (hex code for gray)
-
-    @classmethod
-    def get_data_row_style(cls, row):
-        """Returns style properties for data row based on row data"""
-        styles = {'font_color': None, 'bg_color': None}
-        latest_breed_val = row.get('breedDays')
-
-        # Font color logic
-        if not isinstance(latest_breed_val, str) and pd.notna(latest_breed_val):
-            try:
-                if latest_breed_val > 90:
-                    styles['font_color'] = cls.NON_PERFORMING_FONT_COLOR
-            except Exception:
-                print(f"Error in get_data_row_style (breedDays): {traceback.format_exc()}")
-                pass
-
-        if not styles['font_color']:
-            age = row.get('age')
-            if pd.notna(age):
-                if age > 300:
-                    styles['font_color'] = cls.SENILE_FONT_COLOR
-
-        # Background color logic
-        sex_val = row.get('sex')
-        if isinstance(sex_val, str):
-            sex_clean = sex_val.strip()
-            if sex_clean == '♂':
-                styles['bg_color'] = cls.MALE_BG_COLOR
-            elif sex_clean == '♀':
-                styles['bg_color'] = cls.FEMALE_BG_COLOR
-
-        return styles
