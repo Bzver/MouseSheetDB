@@ -342,8 +342,7 @@ class MouseVisualizer:
                     
                     # Create new highlight
                     x, y = artist.get_xdata()[0], artist.get_ydata()[0]
-                    self.highlight_circle = patches.Circle((x, y), radius=0.2, 
-                                                           color='red', fill=False, linewidth=2)
+                    self.highlight_circle = patches.Circle((x, y), radius=0.2, color='red', fill=False, linewidth=2)
                     self.ax.add_patch(self.highlight_circle)
                     self.mpl_canvas.draw_idle()
 
@@ -459,13 +458,14 @@ class MouseVisualizer:
         is_in_waiting_room = self.selected_mouse.get('nuCA') == 'Waiting Room'
         is_on_death_row = self.selected_mouse.get('nuCA') == 'Death Row'
 
+        menu.add_command(label="Edit mouse entry", command=self.analyzer.edit_mouse_entries)
+        menu.add_command(label="Add to pedigree graph", command=self.add_to_family_tree)
+
         if not is_in_waiting_room and not is_on_death_row:
-            menu.add_command(label="Edit mouse entry", command=self.analyzer.edit_mouse_entries)
             menu.add_command(label="Transfer to current cages", command=self.transfer_to_existing_cage)
             menu.add_command(label="Transfer to waiting room", command=self.transfer_to_waiting_room)
             menu.add_command(label="Transfer to Death Row", command=self.transfer_to_death_row)
         elif is_in_waiting_room:
-            menu.add_command(label="Edit mouse entry", command=self.analyzer.edit_mouse_entries)
             menu.add_command(label="Transfer to current cages", command=self.transfer_from_waiting_room)
             menu.add_command(label="Transfer to a new cage", command=self.transfer_to_new_cage)
             menu.add_command(label="Transfer to Death Row", command=self.transfer_to_death_row)
@@ -478,6 +478,32 @@ class MouseVisualizer:
         finally:
             menu.grab_release()
 
+    #########################################################################################################################
+
+    def add_to_family_tree(self):
+        # 2 B implemented
+        pass
+
+    def display_family_tree_window(self):
+        # Dummy function for now
+        if hasattr(self, 'family_tree_window') and self.family_tree_window.winfo_exists():
+            self.family_tree_window.destroy()
+
+        self.family_tree_window = tk.Toplevel(self.master)
+        self.family_tree_window.title("Mice Pedigree Sheet")
+
+        fig, ax = plt.subplots(figsize=(5, 4))
+        ax.set_xlim(0, 5)
+        ax.set_ylim(0, 4)
+        ax.set_aspect('equal')
+        ax.set_title("Mice Pedigree Sheet")
+        ax.axis('off')
+
+        plt.tight_layout()
+
+        canvas = FigureCanvasTkAgg(fig, master=self.family_tree_window)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     #########################################################################################################################
 

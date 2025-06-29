@@ -19,47 +19,33 @@ class ExcelAnalyzer:
     def __init__(self, master):
         self.master = master
 
-        # UI Title
         master.title("Excel Analyzer V2.5")
 
-        # Button frames
         self.button_frame = tk.Frame(master)
         self.button_frame.pack()
-
         self.browse_button = tk.Button(self.button_frame, text="Browse", command=self.browse_file)
-        self.browse_button.pack(side=tk.LEFT, padx=10)
-
-        self.add_entries_button = tk.Button(self.button_frame, text="Add Entries", command=self.new_mouse_entries, state=tk.DISABLED)
-        self.add_entries_button.pack(side=tk.LEFT, padx=5) 
-
-        self.load_changelog_button = tk.Button(self.button_frame, text="Load Changes", command=self.load_changelog, state=tk.DISABLED)
-        self.load_changelog_button.pack(side=tk.LEFT, padx=5)
-
-        self.save_button = tk.Button(self.button_frame, text="Save", command=self.save_changes, state=tk.DISABLED)
-        self.save_button.pack(side=tk.LEFT, padx=10)
-
-        # Sheet navigation controls
-        self.sheet_nav_frame = tk.Frame(master)
-        self.sheet_nav_frame.pack(pady=10)
-        
-        self.sheet_textbox = tk.Entry(self.sheet_nav_frame, width=40, state='readonly')
-        self.sheet_textbox.pack(side=tk.BOTTOM, padx=10)
-
-        # Add Entry button frame
-        self.new_frame = tk.Frame(master)
-        self.new_frame.pack(pady=1) # Add some padding for separation
-
-        self.prev_sheet_button = tk.Button(self.new_frame, text="◄ Prev Sheet", command=self.prev_sheet, state=tk.DISABLED)
-        self.prev_sheet_button.pack(side=tk.LEFT)
-
-        self.analyze_button = tk.Button(self.new_frame, text="Analyze", command=self.analyze_data, state=tk.DISABLED)
+        self.browse_button.pack(side=tk.LEFT, padx=40)
+        self.analyze_button = tk.Button(self.button_frame, text="Analyze", command=self.analyze_data, state=tk.DISABLED)
         self.analyze_button.pack(side=tk.LEFT, padx=5)
-
-        self.monitor_button = tk.Button(self.new_frame, text="Monitor", command=self.monitor_cages, state=tk.DISABLED)
+        self.monitor_button = tk.Button(self.button_frame, text="Monitor", command=self.monitor_cages, state=tk.DISABLED)
         self.monitor_button.pack(side=tk.LEFT, padx=5)
+        self.tree_button = tk.Button(self.button_frame, text="Pedigree", command=self.family_tree, state=tk.DISABLED)
+        self.tree_button.pack(side=tk.LEFT, padx=5)
+        self.save_button = tk.Button(self.button_frame, text="Save", command=self.save_changes, state=tk.DISABLED)
+        self.save_button.pack(side=tk.LEFT, padx=40)
 
-        self.next_sheet_button = tk.Button(self.new_frame, text="Next Sheet ►", command=self.next_sheet, state=tk.DISABLED)
+        self.sheet_nav_frame = tk.Frame(master)
+        self.sheet_nav_frame.pack()
+        self.add_entries_button = tk.Button(self.sheet_nav_frame, text="Add Entries", command=self.new_mouse_entries, state=tk.DISABLED)
+        self.add_entries_button.pack(side=tk.LEFT, padx=5) 
+        self.prev_sheet_button = tk.Button(self.sheet_nav_frame, text="◄ Prev Sheet", command=self.prev_sheet, state=tk.DISABLED)
+        self.prev_sheet_button.pack(side=tk.LEFT)
+        self.sheet_textbox = tk.Entry(self.sheet_nav_frame, width=12, state='readonly')
+        self.sheet_textbox.pack(side=tk.LEFT, padx=10)
+        self.next_sheet_button = tk.Button(self.sheet_nav_frame, text="Next Sheet ►", command=self.next_sheet, state=tk.DISABLED)
         self.next_sheet_button.pack(side=tk.LEFT)
+        self.load_changelog_button = tk.Button(self.sheet_nav_frame, text="Load Changes", command=self.load_changelog, state=tk.DISABLED)
+        self.load_changelog_button.pack(side=tk.LEFT, padx=5)
 
         self.visualizer = None
         self.file_path = None
@@ -237,6 +223,8 @@ class ExcelAnalyzer:
                                 'cage': 'Waiting Room',
                                 'age': changelog_row.get('age', ''),
                                 'breedDays': changelog_row.get('breedDays', ''),
+                                'parentF': changelog_row.get('parentF', ''),
+                                'parentM': changelog_row.get('parentM', ''),
                             }
                             
                             # Add to mouseDB with a new index
@@ -256,7 +244,7 @@ class ExcelAnalyzer:
                             if mouse_data.get('ID') == changelog_id:
                                 mouse_found = True
                                 
-                                fields_to_update = ['nuCA', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate', 'sheet']
+                                fields_to_update = ['nuCA', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate', 'sheet', 'parentF', 'parentM']
                                 for field in fields_to_update:
                                     if field in changelog_row:
                                         self.mouseDB[mouse_index][field] = changelog_row[field]
@@ -312,7 +300,7 @@ class ExcelAnalyzer:
         try:
             self.visualizer = excel_visualizer.MouseVisualizer(
                 self.master,
-                self, # Pass the analyzer instance
+                self,
                 self.mouseDB,
                 self.sheet_name,
                 self.canvas_widget,
@@ -325,12 +313,12 @@ class ExcelAnalyzer:
     def monitor_cages(self):
         """Prepares data for the cage monitor visualization and passes it to the visualizer."""
 
-        self.last_action = "monitor" # Update last action
+        self.last_action = "monitor"
 
         try:
             self.visualizer = excel_visualizer.MouseVisualizer(
                 self.master,
-                self, # Pass the analyzer instance
+                self,
                 self.mouseDB,
                 self.sheet_name,
                 self.canvas_widget,
@@ -340,8 +328,15 @@ class ExcelAnalyzer:
         except Exception as e:
             messagebox.showerror("Error", f"Error displaying cage monitor: {e}\n{traceback.format_exc()}")
 
+    def family_tree(self):
+        """Prepares data for the family tree visualization window and passes it to the visualizer."""
+        try:
+            excel_visualizer.MouseVisualizer.display_family_tree_window(self)
+        except Exception as e:
+            messagebox.showerror("Error", f"Error displaying pedigree: {e}\n{traceback.format_exc()}")
+
     def _update_database(self):
-        """Callback to update the mouseDB from visualizer."""
+        """Callback to pass the mouseDB update notice from visualizer to analyzer."""
         self.saveStatus = False
         self.save_button["state"] = tk.NORMAL
 
@@ -619,6 +614,7 @@ class ExcelAnalyzer:
         self.next_sheet_button["state"] = tk.DISABLED
         self.analyze_button["state"] = tk.DISABLED
         self.monitor_button["state"] = tk.DISABLED
+        self.tree_button["state"] = tk.DISABLED
         self.save_button["state"] = tk.DISABLED
         self.add_entries_button["state"] = tk.DISABLED
         if self.canvas_widget:
@@ -631,12 +627,13 @@ class ExcelAnalyzer:
         filename = os.path.basename(self.file_path)
         self.sheet_textbox.config(state='normal')
         self.sheet_textbox.delete(0, tk.END)
-        self.sheet_textbox.insert(0, f"{self.sheet_name} in {filename}")
+        self.sheet_textbox.insert(0, self.sheet_name)
         self.sheet_textbox.config(state='readonly')
         self.prev_sheet_button["state"] = tk.NORMAL
         self.next_sheet_button["state"] = tk.NORMAL
         self.analyze_button["state"] = tk.NORMAL
         self.monitor_button["state"] = tk.NORMAL
+        self.tree_button["state"] = tk.NORMAL
 
     def prev_sheet(self):
         """Navigate to previous sheet"""

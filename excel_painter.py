@@ -266,7 +266,7 @@ def write_processed_data_to_excel(excel_file, processed_data):
     df_format = convert_dates_to_string(df_sorted, date_cols)
 
     # Remove the temporary columns
-    cols_to_keep = ['ID', 'cage', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate', 'parentF', 'parentM']
+    cols_to_keep = ['ID', 'cage', 'sex', 'toe', 'genotype', 'birthDate','age', 'breedDate', 'breedDays', 'parentF', 'parentM']
     df_final = df_format.loc[:, cols_to_keep]
 
     try:
