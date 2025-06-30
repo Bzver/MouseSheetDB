@@ -20,17 +20,20 @@ class MouseVisualizer:
         self.canvas_widget = canvas_widget
         self.update_callback = update_callback # Callback for updating the main DataFrame in analyzer
 
-        self.mouse_artists = []
         self.regular_cage_mice = {}
         self.waiting_room_mice = {}
         self.death_row_mice = {}
-        self.current_metadata_window = None
-        self.last_hovered_mouse = None
-        self.highlight_circle = None
-        self.ax = None #
-        self.mpl_canvas = None
+
         self.selected_mouse = None
         self.leaving_timer = None
+        self.current_metadata_window = None
+        self.mouse_artists = []
+        self.last_hovered_mouse = None
+        self.highlight_circle = None
+
+        self.ax = None #
+        self.mpl_canvas = None
+
         self.is_editing = False # New: Flag to indicate if an edit window is open
         self.edited_mouse_artist = None # New: Store the artist of the mouse being edited
 
@@ -481,21 +484,20 @@ class MouseVisualizer:
     #########################################################################################################################
 
     def add_to_family_tree(self):
-        # 2 B implemented
-        pass
+        # WIP
+        if self.selected_mouse is not None:
+            self.selected_mouse['parentF'] = 'Pending'
+            self.selected_mouse['parentM'] = 'Pending'
 
-    def display_family_tree_window(self):
-        # Dummy function for now
+    def display_family_tree_window(self, mouse_data):
+        # WIP
         if hasattr(self, 'family_tree_window') and self.family_tree_window.winfo_exists():
             self.family_tree_window.destroy()
 
         self.family_tree_window = tk.Toplevel(self.master)
         self.family_tree_window.title("Mice Pedigree Sheet")
 
-        fig, ax = plt.subplots(figsize=(5, 4))
-        ax.set_xlim(0, 5)
-        ax.set_ylim(0, 4)
-        ax.set_aspect('equal')
+        fig, ax = plt.subplots(figsize=(8,6))
         ax.set_title("Mice Pedigree Sheet")
         ax.axis('off')
 

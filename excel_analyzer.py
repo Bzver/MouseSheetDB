@@ -331,7 +331,16 @@ class ExcelAnalyzer:
     def family_tree(self):
         """Prepares data for the family tree visualization window and passes it to the visualizer."""
         try:
-            excel_visualizer.MouseVisualizer.display_family_tree_window(self)
+            # Create a new instance of MouseVisualizer for the family tree window
+            family_tree_window = excel_visualizer.MouseVisualizer(
+                self.master,
+                self,
+                self.mouseDB,
+                self.sheet_name,
+                None, # No canvas widget for this separate window
+                self._update_database
+            )
+            family_tree_window.display_family_tree_window(self.mouseDB)
         except Exception as e:
             messagebox.showerror("Error", f"Error displaying pedigree: {e}\n{traceback.format_exc()}")
 
