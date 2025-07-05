@@ -30,6 +30,8 @@ A tool for managing small transgenic mouse colonies (less than 500 mice) with cu
 ![Generated Changelog](https://github.com/user-attachments/assets/8c4e70dc-214d-4841-b83a-d8c698ae939c)
 
 ## To-do
+- Switch to SQLite3 for better data handling
+- Rewrite the frontend GUI using PyQt
 - Customizable genotype symbols and categories via GUI
 - Add mice lineage record and visualization
-- Switch to SQLite3 for better data handling
+
