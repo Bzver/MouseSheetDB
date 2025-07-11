@@ -23,74 +23,12 @@ def data_preprocess(excel_file, sheet_name):
 
 def process_sheet_data(df_sheet):
     """Processes sheet data: fills missing values, calculates ages, assigns sheet categories, and generates IDs."""
-    today_for_calc = date.today()
     df_data = df_sheet.copy()
     df_data = df_data.dropna(how='all')
 
-    # Add optional cols if not already there
-    optional_columns = ['age','breedDays','parentF','parentM']
-    for col in optional_columns:
-        if col not in df_data:
-            df_data[col] = '-'
-
-    # Load and process birthDate
-    df_data['birthDate'] = pd.to_datetime(df_data['birthDate'], errors='coerce', yearfirst=True, format='%Y-%m-%d')
-
-    # Add nuCA for temporary cage storage solution, nuCA == new cage / nuka-ColA
-    df_data['nuCA'] = df_data.loc[:, 'cage']
-
-    # Identify rows where ID is missing/blank/NaN
-    ID_mask = df_data['ID'].isna() | (df_data['ID'] == '')
-
-    # Only process rows where ID is blank
-    if ID_mask.any():
-        df_data.loc[ID_mask, 'genoID'] = df_data.loc[ID_mask, 'genotype'].apply(process_genotypeID)
-        df_data.loc[ID_mask, 'dobID'] = df_data.loc[ID_mask, 'birthDate'].apply(process_birthDateID)
-        df_data.loc[ID_mask, 'toeID'] = df_data.loc[ID_mask, 'toe'].apply(process_toeID)
-        df_data.loc[ID_mask, 'sexID'] = df_data.loc[ID_mask, 'sex'].apply(process_sexID)
-        df_data.loc[ID_mask, 'cageID'] = df_data.loc[ID_mask, 'nuCA'].apply(process_cageID)
-        df_data.loc[ID_mask, 'ID'] = df_data.loc[ID_mask].apply(
-            lambda row: f"{row['genoID']}{row['dobID']}{row['toeID']}{row['sexID']}{row['cageID']}", 
-            axis='columns'
-        )
-        # Check for duplicate IDs in the newly generated ones
-        new_ids = df_data.loc[ID_mask, 'ID']
-        duplicates = new_ids[new_ids.duplicated()]
-
-        if not duplicates.empty:
-            raise ValueError(f"Duplicate IDs generated: {duplicates.unique().tolist()}")
-            
-        # Check if any new IDs conflict with existing non-blank IDs
-        existing_ids = df_data.loc[~ID_mask, 'ID']
-        conflicting_ids = new_ids[new_ids.isin(existing_ids)]
-        if not conflicting_ids.empty:
-            raise ValueError(f"Generated IDs conflict with existing IDs: {conflicting_ids.unique().tolist()}")
-        
-        # Drop the temporary columns
-        df_data = df_data.drop(['genoID', 'dobID', 'sexID', 'toeID', 'cageID'], axis='columns', errors='ignore')
-
-    # Apply categorical ident (sheet)
-    df_data['sheet'] = np.select(
-    [
-        df_data['cage'].str.startswith('2-A-'),
-        df_data['cage'].str.startswith('8-A-'),
-        df_data['cage'] == 'Memorial'
-    ],
-    ['NEX + PP2A', 'CMV + PP2A', 'Memorial'],
-    default='BACKUP'
-    )
-
-    # Calculate mouse ages for alive mice
-    alive_mask = df_data['sheet'] != 'Memorial'
-    if alive_mask.any():
-        df_data.loc[alive_mask, 'age'] = df_data.loc[alive_mask, 'birthDate'].apply(
-            lambda dob: get_age_days(dob, today_for_calc))
-    
-    # Calculate last breed days for alive and non-BACKUP mice
-    breeding_mask = ~df_data['sheet'].isin(['Memorial', 'BACKUP'])
-    if breeding_mask.any():
-        df_data.loc[breeding_mask, 'breedDays'] = df_data.loc[breeding_mask, 'breedDate'].apply(
-            lambda bd: get_days_since_last_breed(bd, today_for_calc))
+    add_optional_cols(df_data) # Add optional cols
+    issue_ID(df_data)
+    date_calculator(df_data)
 
     return df_data
 
@@ -154,6 +92,64 @@ def convert_dates_to_string(df, date_columns):
                     else ('' if pd.isna(x) else str(x))
                 )
     return df
+
+def issue_ID(df_data):
+    # Identify rows where ID is missing/blank/NaN
+    ID_mask = df_data['ID'].isna() | (df_data['ID'] == '')
+    # Only process rows where ID is blank
+    if ID_mask.any():
+        df_data.loc[ID_mask, 'genoID'] = df_data.loc[ID_mask, 'genotype'].apply(process_genotypeID)
+        df_data.loc[ID_mask, 'dobID'] = df_data.loc[ID_mask, 'birthDate'].apply(process_birthDateID)
+        df_data.loc[ID_mask, 'toeID'] = df_data.loc[ID_mask, 'toe'].apply(process_toeID)
+        df_data.loc[ID_mask, 'sexID'] = df_data.loc[ID_mask, 'sex'].apply(process_sexID)
+        df_data.loc[ID_mask, 'cageID'] = df_data.loc[ID_mask, 'nuCA'].apply(process_cageID)
+        df_data.loc[ID_mask, 'ID'] = df_data.loc[ID_mask].apply(
+            lambda row: f"{row['genoID']}{row['dobID']}{row['toeID']}{row['sexID']}{row['cageID']}", 
+            axis='columns'
+        )
+        # Check for duplicate IDs in the newly generated ones
+        new_ids = df_data.loc[ID_mask, 'ID']
+        duplicates = new_ids[new_ids.duplicated()]
+
+        if not duplicates.empty:
+            raise ValueError(f"Duplicate IDs generated: {duplicates.unique().tolist()}")
+            
+        # Check if any new IDs conflict with existing non-blank IDs
+        existing_ids = df_data.loc[~ID_mask, 'ID']
+        conflicting_ids = new_ids[new_ids.isin(existing_ids)]
+        if not conflicting_ids.empty:
+            raise ValueError(f"Generated IDs conflict with existing IDs: {conflicting_ids.unique().tolist()}")
+        
+        # Drop the temporary columns
+        df_data = df_data.drop(['genoID', 'dobID', 'sexID', 'toeID', 'cageID'], axis='columns', errors='ignore')
+    return df_data
+
+def date_calculator(df_data):
+    today_for_calc = date.today()
+    # Load and process birthDate
+    df_data['birthDate'] = pd.to_datetime(df_data['birthDate'], errors='coerce', yearfirst=True, format='%Y-%m-%d')
+
+    # Calculate mouse ages for alive mice
+    alive_mask = df_data['sheet'] != 'Memorial'
+    if alive_mask.any():
+        df_data.loc[alive_mask, 'age'] = df_data.loc[alive_mask, 'birthDate'].apply(
+            lambda dob: get_age_days(dob, today_for_calc))
+    
+    # Calculate last breed days for alive and non-BACKUP mice
+    breeding_mask = ~df_data['sheet'].isin(['Memorial', 'BACKUP'])
+    if breeding_mask.any():
+        df_data.loc[breeding_mask, 'breedDays'] = df_data.loc[breeding_mask, 'breedDate'].apply(
+            lambda bd: get_days_since_last_breed(bd, today_for_calc))
+
+def add_optional_cols(df_data):
+    # Add optional cols if not already there
+    optional_columns = ['age','breedDays','parentF','parentM']
+    for col in optional_columns:
+        if col not in df_data:
+            df_data[col] = '-'
+    # Add nuCA for temporary cage storage solution, nuCA == new cage / nuka-ColA
+    df_data['nuCA'] = df_data.loc[:, 'cage']
+    return df_data
 
 ##########################################################################################################################
 
