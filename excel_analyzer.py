@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 
 import excel_visualizer
 import excel_painter
+import mDB_utils
 
 import traceback
 
@@ -493,15 +494,14 @@ class ExcelAnalyzer:
         # Format toe
         toe = f"toe{toe_input}" if not toe_input.startswith("toe") else toe_input
 
-        # Calculate age using excel_painter function
-        age_days = excel_painter.get_age_days(birth_date_str, self.today)
+        age_days = mDB_utils.get_age_days(birth_date_str, self.today)
 
         # Generate a unique ID for the new mouse
-        genoID = excel_painter.process_genotypeID(genotype)
-        dobID = excel_painter.process_birthDateID(birth_date_str)
-        toeID = excel_painter.process_toeID(toe)
-        sexID = excel_painter.process_sexID(sex)
-        cageID = excel_painter.process_cageID(cage)
+        genoID = mDB_utils.process_genotypeID(genotype)
+        dobID = mDB_utils.process_birthDateID(birth_date_str)
+        toeID = mDB_utils.process_toeID(toe)
+        sexID = mDB_utils.process_sexID(sex)
+        cageID = mDB_utils.process_cageID(cage)
         new_id = f"{genoID}{dobID}{toeID}{sexID}{cageID}"
 
         new_mouse_data = {
@@ -565,11 +565,9 @@ class ExcelAnalyzer:
 
         updated_birth_date = datetime.strptime(updated_birth_date_str, "%Y-%m-%d")
         updated_breed_date = datetime.strptime(updated_breed_date_str, "%Y-%m-%d")
-
-        # Calculate age and breed days using excel_painter functions
         
-        age_days = excel_painter.get_age_days(updated_birth_date, self.today)
-        breed_days = excel_painter.get_days_since_last_breed(updated_breed_date, self.today) if updated_breed_date else "-"
+        age_days = mDB_utils.get_age_days(updated_birth_date, self.today)
+        breed_days = mDB_utils.get_days_since_last_breed(updated_breed_date, self.today) if updated_breed_date else "-"
 
         # Update the mouse data
         self.mouseDB[mouse_key_to_update]['sex'] = updated_sex
