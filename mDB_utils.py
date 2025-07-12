@@ -211,12 +211,83 @@ def date_calculator(df_data):
         
 ##########################################################################################################################
 
-def add_optional_cols(df_data):
-    # Add optional cols if not already there
-    optional_columns = ['age','breedDays','parentF','parentM']
-    for col in optional_columns:
-        if col not in df_data:
-            df_data[col] = '-'
-    # Add nuCA for temporary cage storage solution, nuCA == new cage / nuka-ColA
-    df_data['nuCA'] = df_data.loc[:, 'cage']
-    return df_data
+def calculate_genotype_counts(dict, category):
+    genotypes = []
+    male_counts = []
+    female_counts = []
+    senile_counts = []
+        
+    for mouse_info in dict.values():
+        # Only consider mice in the current ( category ) for genotype counts
+        if mouse_info['sheet'] == category and mouse_info['genotype'] not in genotypes:
+            genotypes.append(mouse_info['genotype'])
+        
+    for genotype in genotypes:
+        males = sum(1 for mouse_info in dict.values()
+                        if mouse_info['genotype'] == genotype
+                        and mouse_info['sheet'] == category
+                        and mouse_info['sex'] == '♂'
+                        and mouse_info['age'] <= 300)
+        females = sum(1 for mouse_info in dict.values()
+                        if mouse_info['genotype'] == genotype
+                        and mouse_info['sheet'] == category
+                        and mouse_info['sex'] == '♀'
+                        and mouse_info['age'] <= 300)
+        seniles = sum(1 for mouse_info in dict.values()
+                        if mouse_info['genotype'] == genotype
+                        and mouse_info['sheet'] == category
+                        and mouse_info['age'] > 300)
+        male_counts.append(males)
+        female_counts.append(females)
+        senile_counts.append(seniles)
+        
+    return genotypes, male_counts, female_counts, senile_counts
+
+def mice_dot_color_picker(sex, age):
+    if age is not None and age > 300:
+        color = 'grey'
+    else:
+        color = 'lightblue' if sex == '♂' else 'lightpink'
+    return color
+
+def genotype_abbreviation_color_picker(genotype_string):
+    geno_text = ""
+    geno_color = 'black'
+    valid_identifier = False
+
+    target_components = {
+        'CMV-CRE': 'C',
+        'NEX-CRE': 'N',
+        'wt': 'wt',
+        'hom-PP2A': ('P', 'gold'),
+        'PP2A(f/w)': ('P', 'olivedrab'),
+        'PP2A(w/-)': ('P', 'chocolate'),
+        'PP2A': 'P', # PP2A fallback
+        }
+
+    for component, marker in target_components.items():
+        if component in genotype_string:
+            valid_identifier = True
+            if component == 'wt':  # wt overrides other markers
+                geno_text = 'wt'
+                geno_color = 'black'
+                break
+            elif isinstance(marker, tuple):  # Special PP2A cases with colors
+                geno_text += marker[0]
+                geno_color = marker[1]
+            else:
+                if component != 'PP2A' and marker not in geno_text:  # Avoid duplicates
+                    geno_text += marker
+                if component == 'PP2A' and not any(x in genotype_string for x in ['hom-','(f/w)','w/-']): # Avoid duplicates for PP2A
+                    geno_text += marker
+
+    if geno_text == 'wt':
+        geno_color = 'black'
+    if not valid_identifier:
+        geno_text = "?"
+        geno_color = 'red'
+    elif not geno_text:
+        geno_text = "?"
+        geno_color = 'red'
+
+    return geno_text, geno_color
