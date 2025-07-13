@@ -1,11 +1,9 @@
 from datetime import date, datetime
 import pandas as pd
-import numpy as np
 
 import mdb_utils
 
 import traceback
-
 
 def data_preprocess(excel_file, sheet_name):
     """Preprocesses Excel data and returns processed data as dict"""
@@ -28,7 +26,6 @@ def data_preprocess(excel_file, sheet_name):
         return None
 
 def write_processed_data_to_excel(excel_file, processed_data):
-    """Writes processed data to Excel file"""
     # Create a new dictionary to hold mice that will be written to Excel. Mice in 'Death Row' will be placed into Memorial sheet.
     parental_mice_live, living_mice = parse_mice_data_for_write(processed_data)
     mice_to_write = memorial_cleanup(processed_data, living_mice, parental_mice_live)
@@ -38,7 +35,7 @@ def write_processed_data_to_excel(excel_file, processed_data):
 
     # Format the dates into strings so they won't get ruined by Excel
     date_cols = ['birthDate', 'breedDate']
-    df_format = mdb_utils.convert_dates_to_string(df_sorted, date_cols)
+    df_format = mdb_utils.df_date_col_formatter(df_sorted, date_cols)
 
     df_final = cleanup_optional_cols(df_format)
 
@@ -51,16 +48,34 @@ def write_processed_data_to_excel(excel_file, processed_data):
     except Exception as e:
         print(f"An error occurred during Excel writing: {e}\n{traceback.format_exc()}")
         return False
+    
+##########################################################################################################################
+
+def validate_excel(file_path, required_column=None): 
+    if required_column is None: # Fallback to default ones
+        required_columns = ['ID', 'cage', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate']
+    if not file_path.lower().endswith(('.xlsx', '.xls')):
+        raise Exception("Invalid file type - must be .xlsx or .xls")
+    # Process all data from MouseDatabase
+    temp_excel = pd.ExcelFile(file_path)
+    if 'MDb' not in temp_excel.sheet_names:
+        raise Exception(f"No 'MDb' among sheets in chosen excel file. Check your chosen file.")
+    temp_excel.close()
+        
+
+
+    df = pd.read_excel(file_path, 'MDb')
+    missing = [col for col in required_columns if col not in df.columns]
+    if missing:
+        raise Exception(f"Missing required columns {missing}")
 
 ##########################################################################################################################
 
 def mice_changelog(old_dict, new_dict, output_path):
-    """Logs mice changes to a new Excel file"""
     try:
         old_dict_by_id = {entry['ID']: entry for entry in old_dict.values()}
-        fields_to_compare = ['nuCA', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate', 'parentF', 'parentM']
-        added_entries, changed_entries = find_changes_for_changelog(new_dict, old_dict_by_id, fields_to_compare)
-        df_added, df_changed, df_manual = organize_changelog_df(added_entries, changed_entries, fields_to_compare)
+        added_entries, changed_entries = find_changes_for_changelog(new_dict, old_dict_by_id)
+        df_added, df_changed, df_manual = organize_changelog_df(added_entries, changed_entries)
 
         # Generate timestamped filename
         timestamp = datetime.now().strftime("%m%d_%H%M%S")
@@ -85,24 +100,121 @@ def mice_changelog(old_dict, new_dict, output_path):
         print(f"Error building changelog: {e}\n{traceback.format_exc()}")
     return False
 
-##########################################################################################################################
+def changelog_loader(changelog_file_path, mice_dict):
+    # Read sheets for Added and Changed mice from the changelog file
+    sheet_names = ['Added', 'Changed']
+    changelog_dfs = {}
+    for sheet_name in sheet_names:
+        try:
+            df = pd.read_excel(changelog_file_path, sheet_name=sheet_name)
+            if not df.empty:
+                changelog_dfs[sheet_name] = df
+        except:
+            continue  # Skip if sheet doesn't exist
+    if not changelog_dfs:
+        raise Exception("The selected changelog file is empty or has no valid sheets.")
+    
+    changes_applied_count = 0
+    exception_entries = []
+    mice_added_count = 0
 
-def find_changes_for_changelog(new_dict, old_dict, fields_to_compare):
-    added_entries = []
-    changed_entries = []
+    # Process each sheet type
+    for sheet_type, changelog_df in changelog_dfs.items():
+        if sheet_type == 'Added':
+            changes_applied_count, mice_added_count, exception_entries = load_changelog_add(
+                changelog_df, mice_dict, changes_applied_count, mice_added_count, exception_entries)       
+        else:  # Changed sheet
+            changes_applied_count, exception_entries = load_changelog_change(
+                changelog_df, mice_dict, changes_applied_count, exception_entries)
 
-    for new_entry in new_dict.values():
-        old_entry = old_dict.get(new_entry['ID'])
-        if not old_entry:
-            added_entries.append(new_entry)
-        elif any(new_entry.get(field) != old_entry.get(field) for field in fields_to_compare):
-            changed_entries.append(new_entry)
+    result_message = [
+    f"Successfully applied {changes_applied_count} changes:",
+    f"- {mice_added_count} new mice added",
+    f"- {changes_applied_count - mice_added_count} existing mice updated"
+    ]
+            
+    return result_message, exception_entries
 
-    if not added_entries and not changed_entries:
+def load_changelog_add(changelog_df, mice_dict, changes_applied_count, exception_entries):
+    for index, changelog_row in changelog_df.iterrows():
+        changelog_id = str(changelog_row['ID'])
+        
+        # Check if mouse already exists
+        mouse_exists = any(
+            mouse_data.get('ID') == changelog_id 
+            for mouse_data in mice_dict.values()
+        )
+        
+        if not mouse_exists:
+            # Create new mouse entry
+            new_mouse = {
+                'ID': changelog_id,
+                'nuCA': changelog_row.get('nuCA', ''),
+                'sex': changelog_row.get('sex', ''),
+                'toe': changelog_row.get('toe', ''),
+                'genotype': changelog_row.get('genotype', ''),
+                'birthDate': changelog_row.get('birthDate', ''),
+                'breedDate': changelog_row.get('breedDate', ''),
+                'sheet': changelog_row.get('sheet', 'BACKUP'),
+                'cage': 'Waiting Room',
+                'age': changelog_row.get('age', ''),
+                'breedDays': changelog_row.get('breedDays', ''),
+                'parentF': changelog_row.get('parentF', ''),
+                'parentM': changelog_row.get('parentM', ''),
+            }
+            
+            # Add to mouseDB with a new index
+            new_index = max(mice_dict.keys()) + 1 if mice_dict else 0
+            mice_dict[new_index] = new_mouse
+            mice_added_count += 1
+            changes_applied_count += 1
+        else:
+            exception_entries.append(f"ID: {changelog_id}, already exists in database (not added)")
+    return changes_applied_count, mice_added_count, exception_entries
+
+def load_changelog_change(changelog_df, mice_dict, changes_applied_count, exception_entries):
+    for index, changelog_row in changelog_df.iterrows():
+        changelog_id = str(changelog_row['ID'])
+        mouse_found = False
+        for mouse_index, mouse_data in mice_dict.items():
+            if mouse_data.get('ID') == changelog_id:
+                mouse_found = True
+                fields_to_update = ['nuCA', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate', 'sheet', 'parentF', 'parentM']
+                for field in fields_to_update:
+                    if field in changelog_row:
+                        mice_dict[mouse_index][field] = changelog_row[field]
+                        # Update cage if nuCA changed
+                        if field == 'nuCA':
+                            mice_dict[mouse_index]['cage'] = changelog_row[field]
+                changes_applied_count += 1
+
+                break  # Found the mouse, move to next entry
+        if not mouse_found:
+            exception_entries.append(f"ID: {changelog_id}, not found in current data")
+    return changes_applied_count, exception_entries
+
+def find_changes_for_changelog(old_dict, new_dict, fields_to_compare=None, check_only=False):
+    if fields_to_compare is None: # Fallback to default fields
+        fields_to_compare = ['nuCA', 'sex', 'toe', 'genotype', 'birthDate', 'breedDate', 'parentF', 'parentM']
+
+    if check_only:
+        return any(
+            (new_entry['ID'] not in old_dict) or
+            any(new_entry.get(f) != old_dict[new_entry['ID']].get(f) for f in fields_to_compare)
+            for new_entry in new_dict.values()
+        )
+
+    added = [e for e in new_dict.values() if e['ID'] not in old_dict]
+    changed = [
+        e for e in new_dict.values() if e['ID'] in old_dict and
+        any(e.get(f) != old_dict[e['ID']].get(f) for f in fields_to_compare)
+    ]
+
+    if not added and not changed:
         print("No changes found.")
         return None
     else:
-        return added_entries, changed_entries
+        return added, changed
     
 def organize_changelog_df(added_entries, changed_entries, fields_to_compare):
     fields_to_keep = ['ID'] + fields_to_compare + ['age', 'breedDays', 'sheet']
@@ -114,11 +226,11 @@ def organize_changelog_df(added_entries, changed_entries, fields_to_compare):
 
     date_cols = ['birthDate', 'breedDate']
     if not df_added.empty:
-        df_added = mdb_utils.convert_dates_to_string(df_added, date_cols)
+        df_added = mdb_utils.df_date_col_formatter(df_added, date_cols)
     if not df_changed.empty:
-        df_changed = mdb_utils.convert_dates_to_string(df_changed, date_cols)
+        df_changed = mdb_utils.df_date_col_formatter(df_changed, date_cols)
     if not df_manual.empty:
-        df_manual = mdb_utils.convert_dates_to_string(df_manual, ['birthDate'])
+        df_manual = mdb_utils.df_date_col_formatter(df_manual, ['birthDate'])
     return df_added, df_changed, df_manual
 
 ##########################################################################################################################

@@ -4,34 +4,48 @@ import random
 import traceback
 
 def issue_ID(df_data):
-    # Identify rows where ID is missing/blank/NaN
+    """Generate IDs for rows with missing/blank IDs, ensuring uniqueness."""
+    # Identify rows needing IDs
     ID_mask = df_data['ID'].isna() | (df_data['ID'] == '')
-    # Only process rows where ID is blank
-    if ID_mask.any():
-        df_data.loc[ID_mask, 'genoID'] = df_data.loc[ID_mask, 'genotype'].apply(process_genotypeID)
-        df_data.loc[ID_mask, 'dobID'] = df_data.loc[ID_mask, 'birthDate'].apply(process_birthDateID)
-        df_data.loc[ID_mask, 'toeID'] = df_data.loc[ID_mask, 'toe'].apply(process_toeID)
-        df_data.loc[ID_mask, 'sexID'] = df_data.loc[ID_mask, 'sex'].apply(process_sexID)
-        df_data.loc[ID_mask, 'cageID'] = df_data.loc[ID_mask, 'nuCA'].apply(process_cageID)
-        df_data.loc[ID_mask, 'ID'] = df_data.loc[ID_mask].apply(
-            lambda row: f"{row['genoID']}{row['dobID']}{row['toeID']}{row['sexID']}{row['cageID']}", 
-            axis='columns'
-        )
-        # Check for duplicate IDs in the newly generated ones
-        new_ids = df_data.loc[ID_mask, 'ID']
-        duplicates = new_ids[new_ids.duplicated()]
+    
+    if not ID_mask.any():
+        return df_data
 
-        if not duplicates.empty:
-            raise ValueError(f"Duplicate IDs generated: {duplicates.unique().tolist()}")
-            
-        # Check if any new IDs conflict with existing non-blank IDs
-        existing_ids = df_data.loc[~ID_mask, 'ID']
-        conflicting_ids = new_ids[new_ids.isin(existing_ids)]
-        if not conflicting_ids.empty:
-            raise ValueError(f"Generated IDs conflict with existing IDs: {conflicting_ids.unique().tolist()}")
+    # Generate component IDs
+    components = {
+        'genoID': ('genotype', process_genotypeID),
+        'dobID': ('birthDate', process_birthDateID),
+        'toeID': ('toe', process_toeID),
+        'sexID': ('sex', process_sexID),
+        'cageID': ('nuCA', process_cageID)
+    }
+    
+    for col, (src_col, processor) in components.items():
+        df_data.loc[ID_mask, col] = df_data.loc[ID_mask, src_col].apply(processor)
+
+    # Compose full IDs
+    df_data.loc[ID_mask, 'ID'] = df_data.loc[ID_mask].apply(
+        lambda row: f"{row['genoID']}{row['dobID']}{row['toeID']}{row['sexID']}{row['cageID']}",
+        axis=1
+    )
+
+    # Handle duplicates and conflicts
+    new_ids = df_data.loc[ID_mask, 'ID']
+    existing_ids = df_data.loc[~ID_mask, 'ID']
+    
+    # Combined check for duplicates within new IDs and conflicts with existing
+    needs_regeneration = new_ids.duplicated(keep=False) | new_ids.isin(existing_ids)
+    
+    if needs_regeneration.any():
+        # Regenerate full random IDs for problematic cases
+        df_data.loc[needs_regeneration[needs_regeneration].index, 'ID'] = \
+            df_data.loc[needs_regeneration[needs_regeneration].index].apply(
+                lambda _: generate_random_id(), axis=1
+            )
         
-        # Drop the temporary columns
-        df_data = df_data.drop(['genoID', 'dobID', 'sexID', 'toeID', 'cageID'], axis='columns', errors='ignore')
+    # Cleanup temporary columns
+    df_data.drop(list(components.keys()), axis=1, inplace=True, errors='ignore')
+    
     return df_data
 
 def process_genotypeID(genotype: str) -> str:
@@ -104,7 +118,10 @@ def process_cageID(cage: str) -> str:
         
     return str(roll_with_rickroll())
 
-def roll_with_rickroll() -> int:
+def generate_random_id():
+        return ''.join([str(random.randint(0, 9)) for _ in range(16)])
+
+def roll_with_rickroll():
     while True:
         num = random.randint(100000, 999999)
         # Check if number is in forbidden ranges
@@ -129,6 +146,11 @@ def purge_leading_zeros(s:str, digits:int):
             result.append(c)
             zero_run = False
     return ''.join(result)[:digits].ljust(digits, '0')
+
+##########################################################################################################################
+
+
+
 
 ##########################################################################################################################
 
@@ -176,20 +198,24 @@ def get_days_since_last_breed(last_breed_val, today_date):
             return "-"
     return "-"
 
-def convert_dates_to_string(df, date_columns):
+def df_date_col_formatter(df, date_columns):
     for col in date_columns:
         if col in df.columns:
-            # Handle datetime objects and pandas NaT
             if pd.api.types.is_datetime64_any_dtype(df[col]):
+                # Handle datetime columns efficiently
                 df[col] = df[col].dt.strftime('%y-%m-%d')
             else:
-                # Convert to string and clean missing values
-                df[col] = df[col].apply(
-                    lambda x: x.strftime('%y-%m-%d') 
-                    if isinstance(x, (datetime, pd.Timestamp)) 
-                    else ('' if pd.isna(x) else str(x))
-                )
+                # Handle mixed-type columns
+                df[col] = df[col].apply(convert_dates_to_string)
     return df
+
+def convert_dates_to_string(date):
+    if isinstance(date, (datetime.datetime, pd.Timestamp)):  # Proper datetime objects
+        return date.strftime('%y-%m-%d')
+    elif pd.isna(date): # NaN / NaT
+        return ''
+    else: # Already a string date
+        return str(date)
 
 def date_calculator(df_data):
     today_for_calc = date.today()
@@ -210,29 +236,29 @@ def date_calculator(df_data):
         
 ##########################################################################################################################
 
-def calculate_genotype_counts(dict, category):
+def calculate_genotype_counts(mice_dict, category):
     genotypes = []
     male_counts = []
     female_counts = []
     senile_counts = []
         
-    for mouse_info in dict.values():
+    for mouse_info in mice_dict.values():
         # Only consider mice in the current ( category ) for genotype counts
         if mouse_info['sheet'] == category and mouse_info['genotype'] not in genotypes:
             genotypes.append(mouse_info['genotype'])
         
     for genotype in genotypes:
-        males = sum(1 for mouse_info in dict.values()
+        males = sum(1 for mouse_info in mice_dict.values()
                         if mouse_info['genotype'] == genotype
                         and mouse_info['sheet'] == category
                         and mouse_info['sex'] == '♂'
                         and mouse_info['age'] <= 300)
-        females = sum(1 for mouse_info in dict.values()
+        females = sum(1 for mouse_info in mice_dict.values()
                         if mouse_info['genotype'] == genotype
                         and mouse_info['sheet'] == category
                         and mouse_info['sex'] == '♀'
                         and mouse_info['age'] <= 300)
-        seniles = sum(1 for mouse_info in dict.values()
+        seniles = sum(1 for mouse_info in mice_dict.values()
                         if mouse_info['genotype'] == genotype
                         and mouse_info['sheet'] == category
                         and mouse_info['age'] > 300)
@@ -291,20 +317,15 @@ def genotype_abbreviation_color_picker(genotype_string):
 
     return geno_text, geno_color
 
-def mice_count_for_monitor(dict, category):
-    regular_cage_mice = {}
-    waiting_room_mice = {}
-    death_row_mice = {}
-
-    for mouse_info in dict.values():
+def mice_count_for_monitor(mice_dict, category, mice_displayed):
+    for mouse_info in mice_dict.values():
         cage_key = mouse_info['nuCA']
         ID = mouse_info['ID']
         if mouse_info['sheet'] == category and mouse_info['nuCA'] not in ['Waiting Room', 'Death Row']:
-            if cage_key not in regular_cage_mice:
-                regular_cage_mice[cage_key] = []
-            regular_cage_mice[cage_key].append(mouse_info)
+            if cage_key not in mice_displayed.regular:
+                mice_displayed.regular[cage_key] = []
+            mice_displayed.regular[cage_key].append(mouse_info)
         elif mouse_info['nuCA'] == 'Waiting Room':
-            waiting_room_mice[ID] = mouse_info 
+            mice_displayed.waiting[ID] = mouse_info 
         elif mouse_info['nuCA'] == 'Death Row':
-            death_row_mice[ID] = mouse_info
-    return regular_cage_mice, waiting_room_mice, death_row_mice
+            mice_displayed.death[ID] = mouse_info
