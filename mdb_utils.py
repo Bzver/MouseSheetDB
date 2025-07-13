@@ -1,4 +1,3 @@
-
 from datetime import date, datetime
 import pandas as pd
 import random
@@ -291,3 +290,21 @@ def genotype_abbreviation_color_picker(genotype_string):
         geno_color = 'red'
 
     return geno_text, geno_color
+
+def mice_count_for_monitor(dict, category):
+    regular_cage_mice = {}
+    waiting_room_mice = {}
+    death_row_mice = {}
+
+    for mouse_info in dict.values():
+        cage_key = mouse_info['nuCA']
+        ID = mouse_info['ID']
+        if mouse_info['sheet'] == category and mouse_info['nuCA'] not in ['Waiting Room', 'Death Row']:
+            if cage_key not in regular_cage_mice:
+                regular_cage_mice[cage_key] = []
+            regular_cage_mice[cage_key].append(mouse_info)
+        elif mouse_info['nuCA'] == 'Waiting Room':
+            waiting_room_mice[ID] = mouse_info 
+        elif mouse_info['nuCA'] == 'Death Row':
+            death_row_mice[ID] = mouse_info
+    return regular_cage_mice, waiting_room_mice, death_row_mice

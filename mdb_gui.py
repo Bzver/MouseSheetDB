@@ -280,8 +280,7 @@ class ExcelAnalyzer:
                 self,
                 self.mouseDB,
                 self.sheet_name,
-                self.canvas_widget,
-                self._update_database
+                self.canvas_widget
             )
             self.canvas_widget = self.visualizer.plot_data()
         except Exception as e:
@@ -298,8 +297,7 @@ class ExcelAnalyzer:
                 self,
                 self.mouseDB,
                 self.sheet_name,
-                self.canvas_widget,
-                self._update_database
+                self.canvas_widget
             )
             self.canvas_widget = self.visualizer.display_cage_monitor()
         except Exception as e:
@@ -315,7 +313,6 @@ class ExcelAnalyzer:
                 self.mouseDB,
                 self.sheet_name,
                 None, # No canvas widget for this separate window
-                self._update_database
             )
             family_tree_window.display_family_tree_window(self.mouseDB)
         except Exception as e:
@@ -669,10 +666,9 @@ class ExcelAnalyzer:
 
     def redraw_canvas(self):
         """Public method to trigger canvas redraw based on current state."""
-        self._perform_analysis_action()
+        self._perform_analyswis_action()
 
     def _perform_analysis_action(self):
-        """Perform analysis based on last action type"""
         if self.canvas_widget:
             self.canvas_widget.destroy()
             self.canvas_widget = None
@@ -683,7 +679,6 @@ class ExcelAnalyzer:
             self.analyze_data()
 
     def _on_edit_window_close(self):
-        """Handles the closing of the edit mouse entries window."""
         if self.edit_window:
             self.edit_window.destroy()
             self.edit_window = None # Clear the reference

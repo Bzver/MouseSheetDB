@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import ttk
-from tkinter import messagebox
 
 import numpy as np
 import pandas as pd
@@ -10,22 +9,26 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.patches as patches
 
 import mdb_utils
+import mdb_transfer
+
+from collections import namedtuple
 
 import warnings
 
 class MouseVisualizer:
-    def __init__(self, master, analyzer, mouseDB, sheet_name, canvas_widget, update_callback):
+    def __init__(self, master, analyzer, mouseDB, sheet_name, canvas_widget):
         self.master = master
-        self.analyzer = analyzer # Store analyzer instance
+        self.analyzer = analyzer
         self.mouseDB = mouseDB
         self.sheet_name = sheet_name
         self.canvas_widget = canvas_widget
-        self.update_callback = update_callback # Callback for updating the main DataFrame in analyzer
 
-        self.regular_cage_mice = {}
-        self.waiting_room_mice = {}
-        self.death_row_mice = {}
-
+        MiceContainers = namedtuple("MiceContainers", ["regular", "waiting", "death"])
+        self.mice_displayed = MiceContainers(
+            regular={}, 
+            waiting={}, 
+            death={}
+        )
         self.selected_mouse = None
         self.leaving_timer = None
         self.current_metadata_window = None
@@ -42,8 +45,6 @@ class MouseVisualizer:
         if self.canvas_widget:
             self.canvas_widget.destroy()
             plt.close('all')
-
-    #########################################################################################################################
 
     def plot_data(self):
         """Plot mouse count by genotype data."""
@@ -100,34 +101,16 @@ class MouseVisualizer:
         ax.set_title(f"Cage Monitor - Sheet: {self.sheet_name}")
         ax.axis('off')
 
-        self.regular_cage_mice = {}
-        self.waiting_room_mice = {}
-        self.death_row_mice = {}
-
-        for mouse_info in self.mouseDB.values():
-            cage_key = mouse_info['nuCA']
-            ID = mouse_info['ID'] # Always get ID
-
-            # Re-populate based on the 'sheet' and 'nuCA' fields in mouse_info
-            if mouse_info['sheet'] == self.sheet_name and mouse_info['nuCA'] not in ['Waiting Room', 'Death Row']:
-                if cage_key not in self.regular_cage_mice:
-                    self.regular_cage_mice[cage_key] = []
-                self.regular_cage_mice[cage_key].append(mouse_info)
-            elif mouse_info['nuCA'] == 'Waiting Room':
-                # Store the mouse dictionary directly under its ID
-                self.waiting_room_mice[ID] = mouse_info 
-            elif mouse_info['nuCA'] == 'Death Row':
-                # Store the mouse dictionary directly under its ID
-                self.death_row_mice[ID] = mouse_info
+        self.mice_displayed.regular, self.mice_displayed.waiting, self.mice_displayed.death = mdb_utils.mice_count_for_monitor(self.mouseDB, self.sheet_name)
 
         # Use the regular_cage_data for calculating positions and plotting regular cages
-        cage_positions = self.calculate_cage_positions(len(self.regular_cage_mice))
+        cage_positions = self._calculate_cage_positions(len(self.mice_displayed.regular))
         self.mouse_artists.clear()  # Clear existing artists
 
         # Draw cages and plot mice
-        self.draw_cages(ax, self.regular_cage_mice, cage_positions)
-        self.plot_mice(ax, self.regular_cage_mice, cage_positions) 
-        self.draw_special_cages(ax)
+        self._draw_cages(ax, self.mice_displayed.regular, cage_positions)
+        self._plot_mice(ax, self.mice_displayed.regular, cage_positions) 
+        self._draw_special_cages(ax)
         self.ax = ax # Store the axes object
 
         # Connect events to the figure
@@ -142,10 +125,7 @@ class MouseVisualizer:
         self.canvas_widget.pack()
         return self.canvas_widget
 
-    def draw_cages(self, ax, cage_data, cage_positions):
-        """
-        Draws the regular cages on the monitor based on the provided cage_data.
-        """
+    def _draw_cages(self, ax, cage_data, cage_positions):
         # Draw regular cages
         for cage_index, (cage_no, mice) in enumerate(cage_data.items()):
             x, y = cage_positions[cage_index]
@@ -165,14 +145,14 @@ class MouseVisualizer:
             cage_text.cage_no = cage_no  # Store cage_no for click event
             cage_text.set_picker(True)
 
-    def draw_special_cages(self, ax):
+    def _draw_cages(self, ax):
         # Waiting Room
         wr_x, wr_y, wr_width, wr_height = 8.5, 6.0, 2.5, 1.5 # Position and size for Waiting Room (moved to right edge)
         wr_rect = patches.Rectangle((wr_x - wr_width/2, wr_y - wr_height/2), wr_width, wr_height, linewidth=1, edgecolor='blue', facecolor='none')
         ax.add_patch(wr_rect)
         ax.text(wr_x, wr_y + wr_height/2 + 0.2, "Waiting Room", ha='center', va='bottom', color='blue', fontsize=12)
         # Pass values from the waiting_room_mice dictionary to _plot_mice_in_area
-        self._plot_mice_in_area(ax, list(self.waiting_room_mice.values()), wr_x, wr_y, wr_width, wr_height)
+        self._plot_mice_in_area(ax, list(self.mice_displayed.waiting.values()), wr_x, wr_y, wr_width, wr_height)
 
         # Death Row
         dr_x, dr_y, dr_width, dr_height = 8.5, 3.0, 2.5, 1.5 # Position and size for Death Row (moved to right edge)
@@ -180,9 +160,9 @@ class MouseVisualizer:
         ax.add_patch(dr_rect)
         ax.text(dr_x, dr_y + dr_height/2 + 0.2, "Death Row", ha='center', va='bottom', color='purple', fontsize=12)
         # Pass values from the death_row_mice dictionary to _plot_mice_in_area
-        self._plot_mice_in_area(ax, list(self.death_row_mice.values()), dr_x, dr_y, dr_width, dr_height)
+        self._plot_mice_in_area(ax, list(self.mice_displayed.death.values()), dr_x, dr_y, dr_width, dr_height)
 
-    def calculate_cage_positions(self, num_cages):
+    def _calculate_cage_positions(self, num_cages):
         positions = []
         cols = 3  # Number of cages per row
         rows = (num_cages + cols - 1) // cols  # Calculate number of rows needed
@@ -205,10 +185,7 @@ class MouseVisualizer:
             positions.append((x, y))
         return positions
 
-    def plot_mice(self, ax, cage_data, cage_positions):
-        """
-        Plots the mice within their respective regular cages based on the provided cage_data.
-        """
+    def _plot_mice(self, ax, cage_data, cage_positions):
         # Plot mice in regular cages
         for cage_index, (cage_no, mice) in enumerate(cage_data.items()):
             x, y = cage_positions[cage_index]
@@ -277,7 +254,6 @@ class MouseVisualizer:
             self.schedule_close_metadata_window()
 
     def schedule_close_metadata_window(self):
-        """Schedule metadata window to close after delay"""
         if self.current_metadata_window and not self.leaving_timer:
             self.leaving_timer = self.master.after(100, self.close_metadata_window)
 
@@ -339,7 +315,6 @@ class MouseVisualizer:
     #########################################################################################################################
 
     def _show_metadata_window(self, mouse):
-        """Displays the metadata window for a given mouse."""
         if self.current_metadata_window:
             self.current_metadata_window.destroy()
 
@@ -384,17 +359,16 @@ class MouseVisualizer:
         menu.add_command(label="Edit mouse entry", command=self.analyzer.edit_mouse_entries)
         menu.add_command(label="Add to pedigree graph", command=self.add_to_family_tree)
 
-        if not is_in_waiting_room and not is_on_death_row:
-            menu.add_command(label="Transfer to current cages", command=self.transfer_to_existing_cage)
-            menu.add_command(label="Transfer to waiting room", command=self.transfer_to_waiting_room)
-            menu.add_command(label="Transfer to Death Row", command=self.transfer_to_death_row)
-        elif is_in_waiting_room:
-            menu.add_command(label="Transfer to current cages", command=self.transfer_from_waiting_room)
-            menu.add_command(label="Transfer to a new cage", command=self.transfer_to_new_cage)
-            menu.add_command(label="Transfer to Death Row", command=self.transfer_to_death_row)
-        else: # is_on_death_row
-            menu.add_command(label="Release from Death Row", command=self.transfer_from_death_row)
-            
+        if is_on_death_row:
+            menu.add_command(label="Release from Death Row", command=mdb_transfer.transfer_from_death_row)
+        else:
+            menu.add_command(label="Transfer to current cages", command=mdb_transfer.transfer_to_existing_cage)
+            menu.add_command(label="Transfer to Death Row", command=mdb_transfer.transfer_to_death_row)
+            if is_in_waiting_room:
+                menu.add_command(label="Transfer to a new cage", command=mdb_transfer.transfer_to_new_cage)
+            else: # in reguular cages
+                menu.add_command(label="Transfer to waiting room", command=mdb_transfer.transfer_to_waiting_room)
+
         try:
             # Display the menu at the mouse click position using Tkinter's pointer coordinates
             menu.tk_popup(self.master.winfo_pointerx(), self.master.winfo_pointery())
@@ -426,289 +400,5 @@ class MouseVisualizer:
         canvas = FigureCanvasTkAgg(fig, master=self.family_tree_window)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
-    #########################################################################################################################
-
-    def transfer_to_existing_cage(self):
-        if self.selected_mouse is not None:
-            dialog = tk.Toplevel(self.master)
-            dialog.title("Select Target Cage")
-            dialog.transient(self.master) # Make it a transient window
-            dialog.grab_set() # Make it modal
-            dialog.geometry("+100+300")
-
-            tk.Label(dialog, text="Select a cage:").pack(pady=10)
-
-            current_cage = self.selected_mouse.get('nuCA')
-            # Filter out the current cage from the list of existing cages
-            existing_cages = sorted([c for c in self.regular_cage_mice.keys() if c != current_cage])
-
-            if not existing_cages:
-                messagebox.showinfo("No Cages", "No other existing cages available for transfer.")
-                dialog.destroy()
-                return
-
-            self.selected_target_cage = tk.StringVar(dialog)
-            self.selected_target_cage.set(existing_cages[0]) # Set initial value
-
-            cage_dropdown = ttk.Combobox(dialog, textvariable=self.selected_target_cage, values=existing_cages, state="readonly")
-            cage_dropdown.pack(pady=5)
-
-            def confirm_transfer():
-                taCA = self.selected_target_cage.get()
-                if self.selected_mouse is not None:
-                    # Remove from previous list if it was a regular cage mouse
-                    # Iterate through items to find the list that contains the selected mouse
-                    for cage_key, mice_list in self.regular_cage_mice.items():
-                        if self.selected_mouse in mice_list:
-                            mice_list.remove(self.selected_mouse)
-                            # If the list becomes empty, remove the cage entry
-                            if not mice_list:
-                                del self.regular_cage_mice[cage_key]
-                            break
-                    # Remove from waiting room if it came from there
-                    if self.selected_mouse['ID'] in self.waiting_room_mice:
-                        del self.waiting_room_mice[self.selected_mouse['ID']]
-                    # Remove from death row if it came from there
-                    if self.selected_mouse['ID'] in self.death_row_mice:
-                        del self.death_row_mice[self.selected_mouse['ID']]
-
-                    self.selected_mouse['nuCA'] = taCA
-                    # Ensure the sheet name is correctly updated for the mouse based on its new cage
-                    if str(taCA).startswith('8-A-'):
-                        self.selected_mouse['sheet'] = 'CMV + PP2A'
-                    elif str(taCA).startswith('2-A-'):
-                        self.selected_mouse['sheet'] = 'NEX + PP2A'
-                    else:
-                        self.selected_mouse['sheet'] = 'BACKUP'
-
-                    # Add to the target regular cage
-                    if taCA not in self.regular_cage_mice:
-                        self.regular_cage_mice[taCA] = []
-                    self.regular_cage_mice[taCA].append(self.selected_mouse)
-                    
-                    self.update_callback() # Call the callback to update the database
-                self.analyzer.redraw_canvas()
-                self.close_metadata_window()
-                dialog.destroy()
-
-            tk.Button(dialog, text="Transfer", command=confirm_transfer).pack(pady=10)
-            dialog.wait_window(dialog) # Wait for the dialog to close
-        self.analyzer.redraw_canvas()
-        self.close_metadata_window()
-
-    def transfer_to_waiting_room(self):
-        if self.selected_mouse is not None:
-            # Remove from previous regular cage if it was there
-            for cage_key, mice_list in self.regular_cage_mice.items():
-                if self.selected_mouse in mice_list:
-                    mice_list.remove(self.selected_mouse)
-                    if not mice_list: # If cage becomes empty, remove it
-                        del self.regular_cage_mice[cage_key]
-                    break
-            # Remove from death row if it was there
-            if self.selected_mouse['ID'] in self.death_row_mice:
-                del self.death_row_mice[self.selected_mouse['ID']]
-
-            self.selected_mouse['nuCA'] = 'Waiting Room'
-            self.selected_mouse['sheet'] = 'Waiting Room'
-            self.waiting_room_mice[self.selected_mouse['ID']] = self.selected_mouse # Store the mouse directly
-            self.update_callback() # Call the callback to update the database
-        self.analyzer.redraw_canvas()
-        self.close_metadata_window()
-
-    def transfer_from_waiting_room(self):
-        if self.selected_mouse is not None:
-            dialog = tk.Toplevel(self.master)
-            dialog.title("Select Target Cage")
-            dialog.transient(self.master) # Make it a transient window
-            dialog.grab_set() # Make it modal
-            dialog.geometry("+100+300")
-
-            tk.Label(dialog, text="Select a cage:").pack(pady=10)
-
-            # Only show cages relevant to the current sheet
-            existing_cages = sorted([c for c in self.regular_cage_mice.keys() if c is not None])
-
-            if not existing_cages:
-                messagebox.showinfo("No Cages", "No existing cages available for transfer. Please create a new cage.")
-                dialog.destroy()
-                return
-
-            self.selected_target_cage = tk.StringVar(dialog)
-            self.selected_target_cage.set(existing_cages[0]) # Set initial value
-
-            cage_dropdown = ttk.Combobox(dialog, textvariable=self.selected_target_cage, values=existing_cages, state="readonly")
-            cage_dropdown.pack(pady=5)
-
-            def confirm_transfer():
-                taCA = self.selected_target_cage.get()
-                if self.selected_mouse is not None:
-                    # Remove from waiting room
-                    if self.selected_mouse['ID'] in self.waiting_room_mice:
-                        del self.waiting_room_mice[self.selected_mouse['ID']]
-                    # Remove from death row if it came from there (safety check)
-                    if self.selected_mouse['ID'] in self.death_row_mice:
-                        del self.death_row_mice[self.selected_mouse['ID']]
-
-                    self.selected_mouse['nuCA'] = taCA
-                    # Set the sheet back based on the cage number if applicable
-                    if str(taCA).startswith('8-A-'):
-                        self.selected_mouse['sheet'] = 'CMV + PP2A'
-                    elif str(taCA).startswith('2-A-'):
-                        self.selected_mouse['sheet'] = 'NEX + PP2A'
-                    else:
-                        self.selected_mouse['sheet'] = 'BACKUP'
-
-                    # Add to the target regular cage
-                    if taCA not in self.regular_cage_mice:
-                        self.regular_cage_mice[taCA] = []
-                    self.regular_cage_mice[taCA].append(self.selected_mouse)
-                    
-                    self.update_callback() # Call the callback to update the database
-                self.analyzer.redraw_canvas()
-                self.close_metadata_window()
-                dialog.destroy()
-
-            tk.Button(dialog, text="Transfer", command=confirm_transfer).pack(pady=10)
-            dialog.wait_window(dialog) # Wait for the dialog to close
-        self.analyzer.redraw_canvas()
-        self.close_metadata_window()
-
-    def transfer_to_new_cage(self):
-        if self.selected_mouse is not None:
-            dialog = tk.Toplevel(self.master)
-            dialog.title("Enter New Cage Number")
-            dialog.transient(self.master) # Make it a transient window
-            dialog.grab_set() # Make it modal
-            dialog.geometry("+100+300")
-
-            tk.Label(dialog, text="Enter the new cage number:").pack(pady=10)
-
-            prefix = ""
-            if self.sheet_name == "NEX + PP2A":
-                prefix = "2-A-"
-            elif self.sheet_name == "CMV + PP2A":
-                prefix = "8-A-"
-
-            prefix_label = tk.Label(dialog, text=prefix)
-            prefix_label.pack(side=tk.LEFT, padx=(10, 0))
-
-            new_cage_entry = tk.Entry(dialog)
-            new_cage_entry.pack(side=tk.LEFT, padx=(0, 10))
-            new_cage_entry.focus_set() # Set focus to the entry widget
-
-            def validate_and_transfer():
-                entered_name = new_cage_entry.get().strip()
-                
-                if not entered_name:
-                    messagebox.showwarning("Invalid Input", "Please enter the cage number.", parent=dialog)
-                    return
-                if not entered_name[0].isdigit() or not entered_name[-1].isdigit():
-                    messagebox.showwarning("Invalid Input", "Must start and end with digits.", parent=dialog)
-                    return
-                
-                if self.sheet_name == 'BACKUP':
-                    if '-B-' in entered_name:
-                        prefix = entered_name.split("-B-")[0]
-                        entered_suffix = entered_name.split("-B-")[1]
-                    else:
-                        entered_suffix = entered_name
-                else: entered_suffix = entered_name
-
-                digits_only = entered_suffix.replace("-","")
-
-                if len(digits_only) == 0:
-                    messagebox.showwarning("Invalid Input", "Must include at least one digit sans prefix.", parent=dialog)
-                    return
-                if not digits_only.isdigit():
-                    messagebox.showwarning("Invalid Input", "Only numbers and '-' are allowed sans prefix.", parent=dialog)
-                    return 
-                if len(digits_only) > 4:
-                    messagebox.showwarning("Invalid Input", "Can only include four digits at most sans prefix.", parent=dialog)
-                    return
-                
-                new_cage_no = prefix + entered_suffix
-                
-                # Check if the new cage number already exists in regular cages
-                if new_cage_no in self.regular_cage_mice: # Check if key exists in the dict
-                    messagebox.showwarning("Cage Exists", f"Cage '{new_cage_no}' already exists. Please enter a different number.", parent=dialog)
-                    new_cage_entry.delete(0, tk.END) # Clear the entry
-                    return
-                
-                # Check if the new cage number fits the "NEX + PP2A" or "CMV + PP2A" scheme while current sheet is 'BACKUP'
-                if self.sheet_name == 'BACKUP' and (new_cage_no.startswith('8-A-') or new_cage_no.startswith('2-A-')):
-                    messagebox.showwarning("Format Error", f"Backup cages are not supposed to start with '8-A-' or '2-A-'. Please enter a different number.", parent=dialog)
-                    new_cage_entry.delete(0, tk.END) # Clear the entry
-                    return
-
-                # Remove from waiting room if it came from there
-                if self.selected_mouse['ID'] in self.waiting_room_mice:
-                    del self.waiting_room_mice[self.selected_mouse['ID']]
-
-                self.selected_mouse['nuCA'] = new_cage_no
-                self.selected_mouse['sheet'] = self.sheet_name
-
-                if new_cage_no not in self.regular_cage_mice:
-                    self.regular_cage_mice[new_cage_no] = []
-                self.regular_cage_mice[new_cage_no].append(self.selected_mouse)
-                
-                self.update_callback() # Update the main DataFrame for the current sheet
-                self.analyzer.redraw_canvas()
-                self.close_metadata_window()
-                dialog.destroy()
-
-            tk.Button(dialog, text="Transfer", command=validate_and_transfer).pack(pady=10)
-            dialog.wait_window(dialog) # Wait for the dialog to close
-
-    def transfer_to_death_row(self):
-        if self.selected_mouse is not None:
-            # Remove from previous regular cage if it was there
-            for cage_key, mice_list in self.regular_cage_mice.items():
-                if self.selected_mouse in mice_list:
-                    mice_list.remove(self.selected_mouse)
-                    if not mice_list: # If cage becomes empty, remove it
-                        del self.regular_cage_mice[cage_key]
-                    break
-            # Remove from waiting room if it was there
-            if self.selected_mouse['ID'] in self.waiting_room_mice:
-                del self.waiting_room_mice[self.selected_mouse['ID']]
-
-            self.selected_mouse['nuCA'] = 'Death Row'
-            self.selected_mouse['sheet'] = 'Death Row' # Set sheet to Death Row
-            self.death_row_mice[self.selected_mouse['ID']] = self.selected_mouse # Store the mouse directly
-            self.update_callback() # Call the callback to update the database
-        self.analyzer.redraw_canvas()
-        self.close_metadata_window()
-
-    def transfer_from_death_row(self):
-        if self.selected_mouse is not None:
-            # Remove from death row
-            if self.selected_mouse['ID'] in self.death_row_mice:
-                del self.death_row_mice[self.selected_mouse['ID']]
-            # Remove from waiting room if it somehow ended up there (safety check)
-            if self.selected_mouse['ID'] in self.waiting_room_mice:
-                del self.waiting_room_mice[self.selected_mouse['ID']]
-
-            # Restore original cage and sheet
-            original_cage = self.selected_mouse['cage'] # Assuming 'cage' stores the original cage
-            self.selected_mouse['nuCA'] = original_cage
-            
-            if str(original_cage).startswith('8-A-'):
-                self.selected_mouse['sheet'] = 'CMV + PP2A'
-            elif str(original_cage).startswith('2-A-'):
-                self.selected_mouse['sheet'] = 'NEX + PP2A'
-            else:
-                self.selected_mouse['sheet'] = 'BACKUP' # Or whatever your default sheet is for other cages
-
-            # Add back to the regular cage if it belongs to the current sheet being viewed
-            if self.selected_mouse['sheet'] == self.sheet_name:
-                if original_cage not in self.regular_cage_mice:
-                    self.regular_cage_mice[original_cage] = []
-                self.regular_cage_mice[original_cage].append(self.selected_mouse)
-            
-            self.update_callback() # Call the callback to update the database
-        self.analyzer.redraw_canvas()
-        self.close_metadata_window()
         
 warnings.simplefilter(action="ignore",category=FutureWarning)
