@@ -76,7 +76,7 @@ class MouseDatabaseGUI:
         self.last_action = "analyze"
         self.is_saved = True
 
-        self.is_debug = True # Make if false before shipping
+        self.is_debug = False # Make if false before shipping
         if self.is_debug: logging.getLogger().setLevel(logging.DEBUG)
         logging.debug(f"is_debug set to: {self.is_debug}")
 
@@ -236,9 +236,6 @@ class MouseDatabaseGUI:
         is_in_waiting_room = self.selected_mouse.get("nuCA") == "Waiting Room"
         is_on_death_row = self.selected_mouse.get("nuCA") == "Death Row"
 
-        menu.add_command(label="Edit mouse entry", command=self._edit_selected_mouse_entry)
-        menu.add_command(label="Add to pedigree graph", command=lambda:mped.add_to_family_tree(self.selected_mouse))
-
         if is_on_death_row:
             menu.add_command(label="Release from Death Row", command=lambda:self._transfer_mouse_action("from_death_row"))
         else:
@@ -248,6 +245,8 @@ class MouseDatabaseGUI:
                 menu.add_command(label="Transfer to a new cage", command=lambda:self._transfer_mouse_action("new_cage"))
             else: # in reguular cages
                 menu.add_command(label="Transfer to waiting room", command=lambda:self._transfer_mouse_action("waiting_room"))
+                menu.add_command(label="Add to pedigree graph", command=lambda:mped.add_to_family_tree(self.selected_mouse))
+                menu.add_command(label="Edit mouse entry", command=self._edit_selected_mouse_entry)
 
         try: # Display the menu at the mouse click position using Tkinter"s pointer coordinates
             menu.tk_popup(self.master.winfo_pointerx(), self.master.winfo_pointery())
@@ -274,7 +273,7 @@ class MouseDatabaseGUI:
 
     def _transfer_mouse_action(self, action_type): # Wrapper for transfer
         logging.debug(f"GUI: Initiating transfer action: {action_type} for mouse ID: {self.selected_mouse.get('ID')}")
-        transfer_instance = mtrans.MouseTransfer(self.master, self.mouseDB, self, self.current_category, self.visualizer.mice_displayed)
+        transfer_instance = mtrans.MouseTransfer(self.master, self.mouseDB, self, self.current_category, self.visualizer.mice_status)
 
         if action_type == "death_row":
             transfer_instance.transfer_to_death_row()

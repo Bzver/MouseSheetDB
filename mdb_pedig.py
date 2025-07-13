@@ -5,11 +5,19 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 class MousePedigree:
     def __init__(self, master, mouseDB):
+        """
+        Initializes the MousePedigree class, which is currently WIP.
+        Args:
+            master: The master Tkinter window.
+            mouseDB: The mouse database object.
+        """
         self.master = master
         self.mouseDB = mouseDB
 
     def display_family_tree_window(self):
-        # WIP
+        """
+        Displays a new window for the mouse family tree. WIP
+        """
         if hasattr(self, "family_tree_window") and self.family_tree_window.winfo_exists():
             self.family_tree_window.destroy()
 
@@ -27,7 +35,11 @@ class MousePedigree:
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
 def add_to_family_tree(selected_mouse):
-    # WIP
+    """
+    Adds a mouse(as in computer) selected mouse(as in rodent) to the family tree structure.
+    Args:
+        selected_mouse: The dictionary of selected_mouse, check mouse_artists in gui.
+    """
     if selected_mouse is not None:
         selected_mouse["parentF"] = "Pending"
         selected_mouse["parentM"] = "Pending"

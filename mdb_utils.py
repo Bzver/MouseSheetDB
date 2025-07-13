@@ -180,12 +180,7 @@ def df_date_col_formatter(df, date_col):
 def df_date_to_days(df_data):
     """Convert date columns to days calculations"""
     df_data["birthDate"] = df_data["birthDate"].apply(convert_to_date)
-    # Calculate mouse ages for alive mice
-    alive_mask = df_data["category"] != "Memorial"
-    df_data["age"] = None
-    if alive_mask.any():
-        df_data.loc[alive_mask, "age"] = df_data.loc[alive_mask, "birthDate"].apply(
-            lambda dob: date_to_days(dob))
+    df_data["age"] = df_data["birthDate"].apply(lambda dob: date_to_days(dob))
     # Calculate last breed days for alive and non-BACKUP mice
     breeding_mask = ~df_data["category"].isin(["Memorial", "BACKUP"])
     df_data["breedDays"] = None 

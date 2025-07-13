@@ -8,6 +8,17 @@ import logging
 
 class MouseEditor:
     def __init__(self, master, gui, mouseDB, selected_mouse, mode="edit"):
+        """
+        Initializes the MouseEditor class, in charge of the sole implementation of mice
+        data edit (e.g. toe, genotype, day of birth) for correction.
+        Args:
+            master: The master Tkinter window.
+            gui: The main GUI instance.
+            mouseDB: The mouse database object.
+            selected_mouse: The dictionary representing the currently selected mouse, 
+            derived from gui and mouse_artists.
+            mode (str): The mode of the editor ("edit" or "add").
+        """
         self.master = master
         self.mouseDB = mouseDB
         self.gui = gui
@@ -30,6 +41,9 @@ class MouseEditor:
         self.reroll_delay = 50  # Milliseconds between updates
 
     def edit_mouse_entries(self):
+        """
+        Creates and displays the window for editing or adding mouse entries.
+        """
         self.edit_window = tk.Toplevel(self.master)
         self.edit_window.title(f"{self.mode.capitalize} Mouse Entries")
         self.edit_window.protocol("WM_DELETE_WINDOW", self._on_edit_window_close)
@@ -42,7 +56,7 @@ class MouseEditor:
             widget.destroy()
         
         self.edit_ID_element()
-        self.edit_gender_element()
+        self.edit_sex_element()
         self.edit_toe_element()
         self.edit_genotype_element()
         self.edit_birthdate_element()
@@ -53,13 +67,18 @@ class MouseEditor:
         self.save_edit_button.grid(row=7, column=0, columnspan=3, pady=10)
 
     def edit_ID_element(self):
+        """
+        Creates and configures the ID entry element.
+        Handles ID display for editing entries.
+        And random ID generation (cosmetical only) for new entries.
+        """
         tk.Label(self.edit_entry_frame, text = "ID:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         disp_id = tk.Entry(self.edit_entry_frame)
         disp_id.grid(row=1, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
 
         if self.mode == "edit":
             disp_id_content = self.edit_mouse_var.get("ID")
-            disp_id.insert(0, disp_id_content) 
+            disp_id.insert(0, disp_id_content)
             disp_id.config(state="readonly")
         else:
             self.reroll_active = False  # Flag to control animation
@@ -74,7 +93,10 @@ class MouseEditor:
             self.edit_window.bind("<FocusIn>", lambda e: self._start_reroll(update_id_animation))
             self.edit_window.bind("<FocusOut>", lambda e: self._stop_reroll())
 
-    def edit_gender_element(self):
+    def edit_sex_element(self):
+        """
+        Creates and configures the sex selection element (radio buttons).
+        """
         tk.Label(self.edit_entry_frame, text="Sex:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.edit_sex_var = tk.StringVar(self.edit_entry_frame)
         male_radio_edit = tk.Radiobutton(self.edit_entry_frame, text="♂", variable=self.edit_sex_var, value="♂")
@@ -88,6 +110,9 @@ class MouseEditor:
             self.edit_sex_var.set("♂ ")
 
     def edit_toe_element(self):
+        """
+        Creates and configures the toe entry element.
+        """
         tk.Label(self.edit_entry_frame, text="Toe:").grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.edit_toe_entry = tk.Entry(self.edit_entry_frame)
         self.edit_toe_entry.grid(row=3, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
@@ -96,6 +121,9 @@ class MouseEditor:
             self.edit_toe_entry.insert(0, self.edit_mouse_var.get("toe", "").replace("toe", ""))
 
     def edit_genotype_element(self):
+        """
+        Creates and configures the genotype entry element.
+        """
         tk.Label(self.edit_entry_frame, text="Genotype:").grid(row=4, column=0, padx=5, pady=5, sticky="w")
         self.edit_genotype_entry = tk.Entry(self.edit_entry_frame)
         self.edit_genotype_entry.grid(row=4, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
@@ -104,6 +132,9 @@ class MouseEditor:
             self.edit_genotype_entry.insert(0, self.edit_mouse_var.get("genotype", ""))
 
     def edit_birthdate_element(self):
+        """
+        Creates and configures the birth date entry element.
+        """
         tk.Label(self.edit_entry_frame, text="Birth Date:").grid(row=5, column=0, padx=5, pady=5, sticky="w")
         self.edit_birthdate_entry = tk.Entry(self.edit_entry_frame)
         self.edit_birthdate_entry.grid(row=5, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
@@ -115,6 +146,9 @@ class MouseEditor:
             self.edit_birthdate_entry.insert(0, birth_date_str)
 
     def edit_breeddate_element(self):
+        """
+        Creates and configures the breed date entry element.
+        """
         tk.Label(self.edit_entry_frame, text="Breed Date:").grid(row=6, column=0, padx=5, pady=5, sticky="w")
         self.edit_breeddate_entry = tk.Entry(self.edit_entry_frame)
         self.edit_breeddate_entry.grid(row=6, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
@@ -129,6 +163,11 @@ class MouseEditor:
             self.edit_breeddate_entry.config(state="readonly")
 
     def _validate_birthdate_input(self):
+        """
+        Validates the birth date input from the entry field.
+        Returns:
+            bool: True if the birth date is valid, False otherwise.
+        """
         input_date_str = self.edit_birthdate_entry.get()
         logging.debug(f"Birth Date Input: '{input_date_str}'")
         validated_date = mut.convert_to_date(input_date_str)
@@ -142,6 +181,11 @@ class MouseEditor:
             return True
 
     def _validate_breeddate_input(self):
+        """
+        Validates the breed date input from the entry field.
+        Returns:
+            bool: True if the breed date is valid or "Non Applicable", False otherwise.
+        """
         input_date_str = self.edit_breeddate_entry.get()
         logging.debug(f"Breed Date Input: '{input_date_str}'")
         validated_date = mut.convert_to_date(input_date_str)
@@ -155,19 +199,34 @@ class MouseEditor:
             return True
 
     def _start_reroll(self, callback):
+        """
+        Starts the ID reroll animation.
+        Args:
+            callback (function): The function to call for updating the ID.
+        """
         self.reroll_active = True
         callback()  # Start animation
 
     def _stop_reroll(self):
+        """Stops the ID reroll animation."""
         self.reroll_active = False
 
     def _save_blocker(self, event=None):
+        """
+        Enables or disables the save button based on the validity of date inputs.
+        Args:
+            event: Should be <KeyRelease> from date related entries.
+        """
         if self._validate_birthdate_input() and self._validate_breeddate_input():
             self.save_edit_button["state"] = tk.NORMAL  # Enable button when valid
         else:
             self.save_edit_button["state"] = tk.DISABLED  # Disable button when invalid
 
     def save_new_entry(self):
+        """
+        Saves a new mouse entry to the database.
+        Performs basic validation and generates a unique ID.
+        """
         logging.debug("save_new_entry called.")
         cage = "Waiting Room"
         sex = self.edit_sex_var.get()
@@ -217,6 +276,10 @@ class MouseEditor:
         self._close_and_refresh()
 
     def save_edit_entry(self):
+        """
+        Saves the edited mouse entry to the database.
+        Validates inputs and updates the corresponding mouse data.
+        """
         logging.debug("save_edit_entry called.")
         selected_id = self.edit_mouse_var.get("ID")
         if not selected_id:
@@ -278,6 +341,7 @@ class MouseEditor:
         self._close_and_refresh()
 
     def _close_and_refresh(self):
+        """Closes the edit window and refreshes the GUI."""
         logging.debug("_on_edit_window_close called.")
         if self.edit_window:
             self.edit_window.destroy()
@@ -287,6 +351,10 @@ class MouseEditor:
             logging.debug("Edit window closed and GUI refreshed.")
 
     def _on_edit_window_close(self):
+        """
+        Handles the event when the edit window is closed.
+        Destroys the window and clears its reference. But no GUI refresh.
+        """
         logging.debug("_on_edit_window_close called.")
         if self.edit_window:
             self.edit_window.destroy()

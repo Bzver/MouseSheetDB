@@ -212,7 +212,9 @@ def find_changes_for_changelog(old_dict, new_dict, fields_to_compare=None, check
     else:
         return added, changed
     
-def organize_changelog_df(added_entries, changed_entries, fields_to_compare):
+def organize_changelog_df(added_entries, changed_entries, fields_to_compare=None):
+    if fields_to_compare is None: # Fallback to default fields
+        fields_to_compare = ["nuCA", "sex", "toe", "genotype", "birthDate", "breedDate", "parentF", "parentM"]
     fields_to_keep = ["ID"] + fields_to_compare + ["age", "breedDays", "category"]
     manual_keep = ["cage", "nuCA", "sex", "toe", "genotype", "birthDate"]
     df_added = pd.DataFrame(added_entries).loc[:, fields_to_keep] if added_entries else pd.DataFrame()

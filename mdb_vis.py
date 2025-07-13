@@ -20,7 +20,7 @@ class MouseVisualizer:
         self.canvas_widget = canvas_widget
 
         MiceContainers = namedtuple("MiceContainers", ["regular", "waiting", "death"])
-        self.mice_displayed = MiceContainers(
+        self.mice_status = MiceContainers(
             regular={}, 
             waiting={}, 
             death={}
@@ -100,17 +100,17 @@ class MouseVisualizer:
         ax.axis("off")
 
         self.mice_count_for_monitor()
-        logging.debug(f"DEBUG: Mice displayed - Regular: {len(self.mice_displayed.regular)}, Waiting: {len(self.mice_displayed.waiting)}, Death: {len(self.mice_displayed.death)}")
+        logging.debug(f"DEBUG: Mice displayed - Regular: {len(self.mice_status.regular)}, Waiting: {len(self.mice_status.waiting)}, Death: {len(self.mice_status.death)}")
 
-        if not self.mice_displayed.regular and not self.mice_displayed.waiting and not self.mice_displayed.death:
+        if not self.mice_status.regular and not self.mice_status.waiting and not self.mice_status.death:
             logging.debug("DEBUG: No mice data to plot for cage monitor.")
             return None # Return None if no data to plot
 
-        cage_positions = self.calculate_cage_positions(len(self.mice_displayed.regular))
+        cage_positions = self.calculate_cage_positions(len(self.mice_status.regular))
         self.mouse_artists.clear()
 
-        self.draw_cages(ax, self.mice_displayed.regular, cage_positions)
-        self.plot_mice(ax, self.mice_displayed.regular, cage_positions) 
+        self.draw_cages(ax, self.mice_status.regular, cage_positions)
+        self.plot_mice(ax, self.mice_status.regular, cage_positions) 
         self.draw_special_cages(ax)
         self.ax = ax
 
@@ -149,13 +149,13 @@ class MouseVisualizer:
         wr_rect = patches.Rectangle((wr_x - wr_width/2, wr_y - wr_height/2), wr_width, wr_height, linewidth=1, edgecolor="blue", facecolor="none")
         ax.add_patch(wr_rect)
         ax.text(wr_x, wr_y + wr_height/2 + 0.2, "Waiting Room", ha="center", va="bottom", color="blue", fontsize=12)
-        self.plot_mice_in_area(ax, list(self.mice_displayed.waiting.values()), wr_x, wr_y, wr_width, wr_height)
+        self.plot_mice_in_area(ax, list(self.mice_status.waiting.values()), wr_x, wr_y, wr_width, wr_height)
 
         dr_x, dr_y, dr_width, dr_height = 8.5, 3.0, 2.5, 1.5
         dr_rect = patches.Rectangle((dr_x - dr_width/2, dr_y - dr_height/2), dr_width, dr_height, linewidth=1, edgecolor="purple", facecolor="none")
         ax.add_patch(dr_rect)
         ax.text(dr_x, dr_y + dr_height/2 + 0.2, "Death Row", ha="center", va="bottom", color="purple", fontsize=12)
-        self.plot_mice_in_area(ax, list(self.mice_displayed.death.values()), dr_x, dr_y, dr_width, dr_height)
+        self.plot_mice_in_area(ax, list(self.mice_status.death.values()), dr_x, dr_y, dr_width, dr_height)
 
     def calculate_cage_positions(self, num_cages):
         positions = []
@@ -254,9 +254,9 @@ class MouseVisualizer:
 
     def mice_count_for_monitor(self):
         # Clear data from previous category
-        self.mice_displayed.regular.clear()
-        self.mice_displayed.waiting.clear()
-        self.mice_displayed.death.clear()
+        self.mice_status.regular.clear()
+        self.mice_status.waiting.clear()
+        self.mice_status.death.clear()
 
         logging.debug(f"DEBUG: mice_count_for_monitor - mouseDB size: {len(self.mouseDB) if self.mouseDB else 0}")
         logging.debug(f"DEBUG: mice_count_for_monitor - current_category: {self.current_category}")
@@ -271,14 +271,14 @@ class MouseVisualizer:
             category = mouse_info.get("category")
 
             if category == self.current_category and cage_key not in ["Waiting Room", "Death Row"]:
-                if cage_key not in self.mice_displayed.regular:
-                    self.mice_displayed.regular[cage_key] = []
-                self.mice_displayed.regular[cage_key].append(mouse_info)
+                if cage_key not in self.mice_status.regular:
+                    self.mice_status.regular[cage_key] = []
+                self.mice_status.regular[cage_key].append(mouse_info)
             elif cage_key == "Waiting Room":
-                self.mice_displayed.waiting[ID] = mouse_info
+                self.mice_status.waiting[ID] = mouse_info
             elif cage_key == "Death Row":
-                self.mice_displayed.death[ID] = mouse_info
-        logging.debug(f"VIS: mice_count_for_monitor completed. Regular: {len(self.mice_displayed.regular)}, Waiting: {len(self.mice_displayed.waiting)}, Death: {len(self.mice_displayed.death)}")
+                self.mice_status.death[ID] = mouse_info
+        logging.debug(f"VIS: mice_count_for_monitor completed. Regular: {len(self.mice_status.regular)}, Waiting: {len(self.mice_status.waiting)}, Death: {len(self.mice_status.death)}")
 
 #########################################################################################################################
 
