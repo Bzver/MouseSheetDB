@@ -1,24 +1,24 @@
-import matplotlib.pyplot as plt
 import tkinter as tk
+
+import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 class MousePedigree:
-    def __init__(self, master, analyzer, mouseDB):
+    def __init__(self, master, mouseDB):
         self.master = master
-        self.analyzer = analyzer
         self.mouseDB = mouseDB
 
-    def display_family_tree_window(self, mouse_data):
+    def display_family_tree_window(self):
         # WIP
-        if hasattr(self, 'family_tree_window') and self.family_tree_window.winfo_exists():
+        if hasattr(self, "family_tree_window") and self.family_tree_window.winfo_exists():
             self.family_tree_window.destroy()
 
         self.family_tree_window = tk.Toplevel(self.master)
-        self.family_tree_window.title("Mice Pedigree Sheet")
+        self.family_tree_window.title("Mice Pedigree Tree")
 
         fig, ax = plt.subplots(figsize=(8,6))
-        ax.set_title("Mice Pedigree Sheet")
-        ax.axis('off')
+        ax.set_title("Mice Pedigree Tree")
+        ax.axis("off")
 
         plt.tight_layout()
 
@@ -29,5 +29,5 @@ class MousePedigree:
 def add_to_family_tree(selected_mouse):
     # WIP
     if selected_mouse is not None:
-        selected_mouse['parentF'] = 'Pending'
-        selected_mouse['parentM'] = 'Pending'
+        selected_mouse["parentF"] = "Pending"
+        selected_mouse["parentM"] = "Pending"
