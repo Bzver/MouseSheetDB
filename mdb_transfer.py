@@ -44,7 +44,7 @@ class MouseTransfer:
             tk.Label(dialog, text="Select a cage:").pack(pady=10)
 
             current_cage = self.selected_mouse.get("nuCA")
-            existing_cages = sorted([c for c in self.mice_status.regular.keys() if c != current_cage])
+            existing_cages = sorted([c for c in self.mice_status.regular if c != current_cage])
 
             if not existing_cages:
                 logging.debug("No other existing cages available for transfer.")
@@ -52,10 +52,10 @@ class MouseTransfer:
                 dialog.destroy()
                 return
 
-            selected_target_cage = tk.StringVar(dialog)
-            selected_target_cage.set(existing_cages[0])
+            self.selected_target_cage = tk.StringVar(dialog)
+            self.selected_target_cage.set(existing_cages[0])
 
-            cage_dropdown = ttk.Combobox(dialog, textvariable=selected_target_cage, values=existing_cages, state="readonly")
+            cage_dropdown = ttk.Combobox(dialog, textvariable=self.selected_target_cage, values=existing_cages, state="readonly")
             cage_dropdown.pack(pady=5)
 
             tk.Button(dialog, text="Transfer", command=lambda: self.confirm_transfer(dialog)).pack(pady=10)
@@ -71,15 +71,16 @@ class MouseTransfer:
         self.selected_mouse = self.gui.selected_mouse # Ensure we are working with the currently selected mouse from GUI
         if self.selected_mouse is not None:
             logging.debug(f"TRANSFER: Before modification - Regular: {len(self.mice_status.regular)}, Waiting: {len(self.mice_status.waiting)}, Death: {len(self.mice_status.death)}")
-            logging.debug(f"Attempting to transfer mouse {self.selected_mouse.get('ID')} to Waiting Room.")
-            for cage_key, mice_list in self.mice_status.regular.items():
+            logging.debug(f"Attempting to transfer mouse {self.selected_mouse} to Waiting Room.")
+            current_cage = self.selected_mouse.get("nuCA")
+            if current_cage and current_cage in self.mice_status.regular:
+                mice_list = self.mice_status.regular[current_cage]
                 if self.selected_mouse in mice_list:
                     mice_list.remove(self.selected_mouse)
-                    logging.debug(f"TRANSFER: Removed mouse {self.selected_mouse.get('ID')} from regular cage {cage_key}.")
+                    logging.debug(f"TRANSFER: Removed mouse {self.selected_mouse} from regular cage {current_cage}.")
                     if not mice_list:
-                        del self.mice_status.regular[cage_key]
-                        logging.debug(f"TRANSFER: Deleted empty regular cage {cage_key}.")
-                    break
+                        del self.mice_status.regular[current_cage]
+                        logging.debug(f"TRANSFER: Deleted empty regular cage {current_cage}.")
 
             if self.selected_mouse["ID"] in self.mice_status.death:
                 del self.mice_status.death[self.selected_mouse["ID"]]
@@ -134,15 +135,16 @@ class MouseTransfer:
         self.selected_mouse = self.gui.selected_mouse # Ensure we are working with the currently selected mouse from GUI
         if self.selected_mouse is not None:
             logging.debug(f"TRANSFER: Before modification - Regular: {len(self.mice_status.regular)}, Waiting: {len(self.mice_status.waiting)}, Death: {len(self.mice_status.death)}")
-            logging.debug(f"Attempting to transfer mouse {self.selected_mouse.get('ID')} to Death Row.")
-            for cage_key, mice_list in self.mice_status.regular.items():
+            logging.debug(f"Attempting to transfer mouse {self.selected_mouse} to Death Row.")
+            current_cage = self.selected_mouse.get("nuCA")
+            if current_cage and current_cage in self.mice_status.regular:
+                mice_list = self.mice_status.regular[current_cage]
                 if self.selected_mouse in mice_list:
                     mice_list.remove(self.selected_mouse)
-                    logging.debug(f"TRANSFER: Removed mouse {self.selected_mouse.get('ID')} from regular cage {cage_key}.")
+                    logging.debug(f"TRANSFER: Removed mouse {self.selected_mouse} from regular cage {current_cage}.")
                     if not mice_list:
-                        del self.mice_status.regular[cage_key]
-                        logging.debug(f"TRANSFER: Deleted empty regular cage {cage_key}.")
-                    break
+                        del self.mice_status.regular[current_cage]
+                        logging.debug(f"TRANSFER: Deleted empty regular cage {current_cage}.")
 
             self._remove_from_dict("waiting")
             logging.debug(f"Removed mouse from waiting room dict (if present).")
@@ -195,13 +197,13 @@ class MouseTransfer:
         if self.selected_mouse is not None:
             logging.debug(f"TRANSFER: Before modification - Regular: {len(self.mice_status.regular)}, Waiting: {len(self.mice_status.waiting)}, Death: {len(self.mice_status.death)}")
 
-            for cage_key, mice_list in self.mice_status.regular.items():
+            current_cage = self.selected_mouse.get("nuCA")
+            if current_cage and current_cage in self.mice_status.regular:
+                mice_list = self.mice_status.regular[current_cage]
                 if self.selected_mouse in mice_list:
                     mice_list.remove(self.selected_mouse)
-
                     if not mice_list:
-                        del self.mice_status.regular[cage_key]
-                    break
+                        del self.mice_status.regular[current_cage]
 
             self._remove_from_dict("death")
             self._remove_from_dict("waiting")

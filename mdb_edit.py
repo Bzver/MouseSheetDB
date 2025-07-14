@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import messagebox
-from datetime import datetime
 
 import mdb_utils as mut
 
@@ -55,7 +54,7 @@ class MouseEditor:
         for widget in self.edit_entry_frame.winfo_children():
             widget.destroy()
         
-        self.edit_ID_element()
+        self.edit_id_element()
         self.edit_sex_element()
         self.edit_toe_element()
         self.edit_genotype_element()
@@ -66,7 +65,7 @@ class MouseEditor:
         self.save_edit_button = tk.Button(self.edit_entry_frame, text="Save Changes", command=save_command)
         self.save_edit_button.grid(row=7, column=0, columnspan=3, pady=10)
 
-    def edit_ID_element(self):
+    def edit_id_element(self):
         """
         Creates and configures the ID entry element.
         Handles ID display for editing entries.
@@ -230,9 +229,9 @@ class MouseEditor:
         logging.debug("save_new_entry called.")
         cage = "Waiting Room"
         sex = self.edit_sex_var.get()
-        toe_input = self.edit_sex_var.get()
-        genotype = self.edit_sex_var.get()
-        birth_date_str = self.edit_sex_var.get()
+        toe_input = self.edit_toe_entry.get()
+        genotype = self.edit_genotype_entry.get()
+        birth_date_str = self.edit_birthdate_entry.get()
 
         # Basic validation
         if not all([sex, toe_input, genotype, birth_date_str]):
@@ -242,7 +241,8 @@ class MouseEditor:
         # Format toe
         toe = f"toe{toe_input}" if not toe_input.startswith("toe") else toe_input
 
-        age_days = mut.date_to_days(birth_date_str)
+        birth_date = mut.convert_to_date(birth_date_str)
+        age = mut.date_to_days(birth_date)
 
         # Generate a unique ID for the new mouse
         genoID = mut.process_genotypeID(genotype)
@@ -258,8 +258,8 @@ class MouseEditor:
             "sex": sex,
             "toe": toe,
             "genotype": genotype,
-            "birthDate": birth_date_str,
-            "age": age_days,
+            "birthDate": birth_date,
+            "age": age,
             "breedDate": None,
             "breedDays": None,
             "nuCA": cage,
@@ -287,18 +287,13 @@ class MouseEditor:
             messagebox.showerror("Selection Error", "Please select a mouse to edit.")
             return
 
-        # Find the mouse in mouseDB
-        mouse_key_to_update = None
-        for key, mouse_data in self.mouseDB.items():
-            if mouse_data.get("ID") == selected_id:
-                mouse_key_to_update = key
-                break
-
-        if mouse_key_to_update is None:
+        # Find the mouse in mouseDB using direct lookup
+        if selected_id in self.mouseDB:
+            mouse_key_to_update = selected_id
+        else:
             logging.error(f"Selected mouse {selected_id} not found in data.")
             messagebox.showerror("Error", "Selected mouse not found in data.")
             return
-
         # Get updated values from form
         updated_sex = self.edit_sex_var.get()
         updated_toe_input = self.edit_toe_entry.get()
@@ -317,21 +312,21 @@ class MouseEditor:
         updated_toe = f"toe{updated_toe_input}" if not updated_toe_input.startswith("toe") else updated_toe_input
         logging.debug(f"Formatted toe: {updated_toe}")
 
-        updated_birth_date = datetime.strptime(updated_birth_date_str, "%y-%m-%d")
+        updated_birth_date = mut.convert_to_date(updated_birth_date_str)
         if updated_breed_date_str and updated_breed_date_str != "Non Applicable":
-            updated_breed_date = datetime.strptime(updated_breed_date_str, "%y-%m-%d")
+            updated_breed_date = mut.convert_to_date(updated_breed_date_str)
         else: updated_breed_date = None
         
-        age_days = mut.date_to_days(updated_birth_date)
+        age = mut.date_to_days(updated_birth_date)
         breed_days = mut.date_to_days(updated_breed_date) if updated_breed_date else None
-        logging.debug(f"Calculated age_days: {age_days}, breed_days: {breed_days}")
+        logging.debug(f"Calculated age_days: {age}, breed_days: {breed_days}")
 
         # Update the mouse data
         self.mouseDB[mouse_key_to_update]["sex"] = updated_sex
         self.mouseDB[mouse_key_to_update]["toe"] = updated_toe
         self.mouseDB[mouse_key_to_update]["genotype"] = updated_genotype
         self.mouseDB[mouse_key_to_update]["birthDate"] = updated_birth_date
-        self.mouseDB[mouse_key_to_update]["age"] = age_days
+        self.mouseDB[mouse_key_to_update]["age"] = age
         self.mouseDB[mouse_key_to_update]["breedDate"] = updated_breed_date if updated_breed_date else None
         self.mouseDB[mouse_key_to_update]["breedDays"] = breed_days
         logging.debug(f"Mouse {selected_id} data updated in mouseDB.")
