@@ -112,7 +112,7 @@ def process_birthDateID(bdate: datetime) -> str:
     """Convert birthdate to YYMMDD format"""
     try:
         if pd.notna(bdate) and not isinstance(bdate,datetime):
-            bdate = pd.to_datetime(bdate, errors="coerce", yearfirst=True, format="%y-%m-%d")
+            bdate = convert_to_date(bdate)
         return bdate.strftime("%y%m%d") if pd.notna(bdate) else "000000"
     except Exception as e:
         logging.error(f"Error processing birth date: {e}\n{traceback.format_exc()}")
@@ -121,16 +121,17 @@ def process_birthDateID(bdate: datetime) -> str:
 def process_toeID(toe: str) -> str:
     """Extract toe number or generate random if invalid"""
     toe_str = str(toe)
-    if "toe" not in toe_str:
-        return str(random.randint(90, 99))
-    
-    toe_num = toe_str.split("toe")[1].split("a")[0]
+    toe_str = f"toe{toe_str}" if not toe_str.startswith("toe") else toe_str
+    toe_num = toe_str.split("toe")[1]
+    try:
+        int(toe_num)
+    except:
+        return "69"
     if len(toe_num) == 1:
         return f"0{toe_num}"
-    elif len(toe_num) == 2:
+    if len(toe_num) == 2:
         return toe_num
-    else:
-        return str(random.randint(91, 99))
+    return "69"
 
 def process_sexID(sex: str) -> str:
     """Generate sex ID (odd for male, even for female)"""
@@ -154,8 +155,7 @@ def process_cageID(cage: str) -> str:
             suffix = parts[1] if len(parts) > 1 else ""
             suffix_purged = purge_leading_zeros(suffix.zfill(4),4)
             return f"{prefix}{random.randint(1, 5)}{suffix_purged}"
-
-    elif "-B-" in cage_str:
+    if "-B-" in cage_str:
         parts = cage_str.replace("-", "").split("B")
         prefix = parts[0]
         if prefix in ("2","8"):

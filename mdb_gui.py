@@ -278,25 +278,13 @@ class MouseDatabaseGUI(QWidget):
 
         menu.exec(self.mapToGlobal(position))
 
-    def mouse_edit(self):
-        """Prepares data for the mouse editing and passes it to editor."""
-        logging.debug("mouse_edit called.")
-        try:
-            # Pass self (the GUI instance) as the parent for the editor
-            self.editor = medit.MouseEditor(self, self.mouseDB, self, self.selected_mouse)
-            self.editor.exec()
-            logging.debug("Mouse editor initialized successfully.")
-        except Exception as e:
-            logging.error(f"Error editing mice: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Error editing mice: {e}\n{traceback.format_exc()}")
-
     def _edit_selected_mouse_entry(self): # Wrapper for edit
-        editor_instance = medit.MouseEditor(self, self.mouseDB, self.selected_mouse, mode="edit")
-        editor_instance.exec()
+        self.editor = medit.MouseEditor(self, self.mouseDB, self.selected_mouse, mode="edit")
+        self.editor.exec()
 
     def _add_new_mouse_entry(self): # Wrapper for add
-        editor_instance = medit.MouseEditor(self, self.mouseDB,  None, mode="new")
-        editor_instance.exec()
+        self.editor = medit.MouseEditor(self, self.mouseDB, None, mode="new")
+        self.editor.exec()
 
     def _transfer_mouse_action(self, action_type): # Wrapper for transfer
         logging.debug(f"GUI: Initiating transfer action: {action_type} for mouse ID: {self.selected_mouse.get('ID')}")

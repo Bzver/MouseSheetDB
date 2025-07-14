@@ -50,6 +50,7 @@ class MouseEditor(QtWidgets.QDialog):
 
     def setup_editor_ui(self):
         """Sets up the UI elements for the MouseEditor."""
+        self.save_edit_button = QPushButton("Save Changes")
         self.edit_id_element()
         self.edit_sex_element()
         self.edit_toe_element()
@@ -57,7 +58,6 @@ class MouseEditor(QtWidgets.QDialog):
         self.edit_birthdate_element()
         self.edit_breeddate_element()
 
-        self.save_edit_button = QPushButton("Save Changes")
         save_command = getattr(self, f"save_{self.mode}_entry")
         self.save_edit_button.clicked.connect(save_command)
         self.save_edit_button.setEnabled(False)
@@ -79,18 +79,10 @@ class MouseEditor(QtWidgets.QDialog):
             self.disp_id_entry.setText(disp_id_content)
             self.disp_id_entry.setReadOnly(True)
         else:
-            self.reroll_active = False  # Flag to control animation
+            self.reroll_active = True
             self.reroll_delay = 50  # FPS = 1000 / 50 = 20
             self.disp_id_entry.setFocusPolicy(Qt.NoFocus) # Disable focus to prevent manual editing
             self.reroll_timer.start(self.reroll_delay) # Start animation immediately for new entry
-            self.disp_id_entry.setReadOnly(True)
-
-    def _update_id_animation(self):
-        """Updates the ID display with a random ID."""
-        if self.reroll_active:
-            self.disp_id_entry.setText(mut.generate_random_id())
-        else:
-            self.reroll_timer.stop()
 
     def edit_sex_element(self):
         """
@@ -119,7 +111,7 @@ class MouseEditor(QtWidgets.QDialog):
         else:
             male_radio_edit.setChecked(True) # Default for new entry
 
-    def edit_toe_element(self):
+    def edit_toe_element(self): # TODO: Make it more interesting, like ten mice toe picture for clipping, and a checkbox that deals with duplicates
         """
         Creates and configures the toe entry element.
         """
@@ -129,8 +121,9 @@ class MouseEditor(QtWidgets.QDialog):
 
         if self.mode == "edit":
             self.edit_toe_entry.setText(self.edit_mouse_var.get("toe", "").replace("toe", ""))
+        self.edit_toe_entry.textChanged.connect(self._save_blocker)
 
-    def edit_genotype_element(self):
+    def edit_genotype_element(self): # TODO: Make a drop down list from existing genotypes (which can be increased from, say, a separate config mechanism)
         """
         Creates and configures the genotype entry element.
         """
@@ -140,8 +133,9 @@ class MouseEditor(QtWidgets.QDialog):
 
         if self.mode == "edit":
             self.edit_genotype_entry.setText(self.edit_mouse_var.get("genotype", ""))
+        self.edit_genotype_entry.textChanged.connect(self._save_blocker)
 
-    def edit_birthdate_element(self):
+    def edit_birthdate_element(self): # TODO: CALENDAR WIDGET INSTEAD OF DIRECT INPUT!
         """
         Creates and configures the birth date entry element.
         """
@@ -155,7 +149,7 @@ class MouseEditor(QtWidgets.QDialog):
             birth_date_str = mut.convert_date_to_string(birth_date)
             self.edit_birthdate_entry.setText(birth_date_str)
 
-    def edit_breeddate_element(self):
+    def edit_breeddate_element(self): # TODO: CALENDAR WIDGET INSTEAD OF DIRECT INPUT!
         """
         Creates and configures the breed date entry element.
         """
@@ -172,62 +166,80 @@ class MouseEditor(QtWidgets.QDialog):
             self.edit_breeddate_entry.setText("Non Applicable")
             self.edit_breeddate_entry.setReadOnly(True)
 
-    def _validate_birthdate_input(self):
+    #########################################################################################################################
+
+    def _validate_genotype_input(self):
         """
-        Validates the birth date input from the entry field.
+        Validates the genotype input from the entry field. Currently just checking if it is empty
         Returns:
-            bool: True if the birth date is valid, False otherwise.
+            bool: True if the genotype input is not empty, False otherwise.
         """
-        input_date_str = self.edit_birthdate_entry.text()
-        logging.debug(f"Birth Date Input: '{input_date_str}'")
+        input_genotype_str = self.edit_genotype_entry.text()
+        if not input_genotype_str: # Empty
+            return False
+        return True
+
+    def _validate_toe_input(self):
+        """
+        Validates the toe input from the entry field.
+        Returns:
+            bool: True if the toe input is valid, False otherwise.
+        """
+        input_toe_str = self.edit_toe_entry.text()
+        if not input_toe_str: # Empty, maybe user has not input yet, don't color the bg red but still return False
+            return False
+        logging.debug(f"Toe Input: '{input_toe_str}'")
+        validated_toe = mut.process_toeID(input_toe_str)
+        logging.debug(f"Toe valid: '{validated_toe}'")
+        if validated_toe == "69":
+            logging.debug(f"Invalid Toe detected: '{input_toe_str}'")
+            self.edit_toe_entry.setStyleSheet("background-color: salmon;")
+            return False
+        self.edit_toe_entry.setStyleSheet("") # Clear background color
+        return True
+
+    def _validate_date_input(self, mode: str):
+        """
+        Validates the date input from the entry field.
+        Args:
+            mode: "breeddate" or "birthdate"
+        Returns:
+            bool: True if the date is valid, False otherwise.
+        """
+        input_date_str = self.edit_birthdate_entry.text() if mode == "birthdate" else self.edit_breeddate_entry.text()
+        if not input_date_str:
+            return False
+        logging.debug(f"{mode} Input: '{input_date_str}'")
+        if input_date_str in ["Non Applicable"] and mode == "breeddate": # Skip check for fixed N/A cases
+            return True
         validated_date = mut.convert_to_date(input_date_str)
         if validated_date is None:
-            logging.debug(f"Invalid Birth Date detected: '{input_date_str}'")
-            self.edit_birthdate_entry.setStyleSheet("background-color: salmon;")
+            logging.debug(f"Invalid {mode} detected: '{input_date_str}'")
+            if mode == "birthdate":
+                self.edit_birthdate_entry.setStyleSheet("background-color: salmon;")
+            else:
+                self.edit_breeddate_entry.setStyleSheet("background-color: salmon;")
             return False
+        logging.debug(f"Valid {mode.capitalize}: '{input_date_str}' -> {validated_date}")
+        if mode == "birthdate":
+            self.edit_birthdate_entry.setStyleSheet("")
         else:
-            logging.debug(f"Valid Birth Date: '{input_date_str}' -> {validated_date}")
-            self.edit_birthdate_entry.setStyleSheet("") # Clear background color
-            return True
-
-    def _validate_breeddate_input(self):
-        """
-        Validates the breed date input from the entry field.
-        Returns:
-            bool: True if the breed date is valid or "Non Applicable", False otherwise.
-        """
-        input_date_str = self.edit_breeddate_entry.text()
-        logging.debug(f"Breed Date Input: '{input_date_str}'")
-        validated_date = mut.convert_to_date(input_date_str)
-        if validated_date is None and input_date_str not in ["", "Non Applicable"]:
-            logging.debug(f"Invalid Breed Date detected: '{input_date_str}'")
-            self.edit_breeddate_entry.setStyleSheet("background-color: salmon;")
-            return False
-        else:
-            logging.debug(f"Valid Breed Date: '{input_date_str}' -> {validated_date}")
-            self.edit_breeddate_entry.setStyleSheet("")
-            return True
-
-    def _start_reroll(self):
-        """
-        Starts the ID reroll animation.
-        """
-        self.reroll_active = True
-        self.reroll_timer.start(self.reroll_delay)
-
-    def _stop_reroll(self):
-        """Stops the ID reroll animation."""
-        self.reroll_active = False
-        self.reroll_timer.stop()
-
+            self.edit_breeddate_entry.setStyleSheet("") 
+        return True
+        
     def _save_blocker(self):
-        """
-        Enables or disables the save button based on the validity of date inputs.
-        """
-        if self._validate_birthdate_input() and self._validate_breeddate_input():
+        """Enables or disables the save button based on the validity of inputs."""
+        check_genotype = self._validate_genotype_input()
+        check_toe = self._validate_toe_input()
+        check_birthdate = self._validate_date_input("birthdate")
+        check_breeddate = self._validate_date_input("breeddate")
+
+        if all([check_birthdate, check_breeddate, check_toe, check_genotype]):
             self.save_edit_button.setEnabled(True)  # Enable button when valid
         else:
             self.save_edit_button.setEnabled(False)  # Disable button when invalid
+
+    #########################################################################################################################
 
     def save_new_entry(self):
         """
@@ -262,17 +274,9 @@ class MouseEditor(QtWidgets.QDialog):
         new_id = f"{genoID}{dobID}{toeID}{sexID}{cageID}"
 
         new_mouse_data = {
-            "ID": new_id,
-            "cage": cage,
-            "sex": sex,
-            "toe": toe,
-            "genotype": genotype,
-            "birthDate": birth_date,
-            "age": age,
-            "breedDate": None,
-            "breedDays": None,
-            "nuCA": cage,
-            "category": cage
+            "ID": new_id,"cage": cage,"sex": sex,"toe": toe,"genotype": genotype,
+            "birthDate": birth_date,"age": age,"breedDate": None,"breedDays": None,
+            "nuCA": cage,"category": cage
         }
 
         # Find a unique key for the new entry in mouseDB
@@ -303,6 +307,7 @@ class MouseEditor(QtWidgets.QDialog):
             logging.error(f"Selected mouse {selected_id} not found in data.")
             QMessageBox.critical(self, "Error", "Selected mouse not found in data.")
             return
+        
         # Get updated values from form
         selected_sex_button = self.edit_sex_group.checkedButton()
         updated_sex = selected_sex_button.text() if selected_sex_button else ""
@@ -312,20 +317,15 @@ class MouseEditor(QtWidgets.QDialog):
         updated_breed_date_str = self.edit_breeddate_entry.text()
         logging.debug(f"Retrieved form values: Sex={updated_sex}, Toe={updated_toe_input}, Genotype={updated_genotype}, BirthDate={updated_birth_date_str}, BreedDate={updated_breed_date_str}")
 
-        # Basic validation
-        if not all([updated_sex, updated_toe_input, updated_genotype, updated_birth_date_str]):
-            logging.warning("Missing required fields for edited entry.")
-            QMessageBox.critical(self, "Input Error", "All fields (except Breed Date) must be filled for an edited entry.")
-            return
-
-        # Format toe
-        updated_toe = f"toe{updated_toe_input}" if not updated_toe_input.startswith("toe") else updated_toe_input
+        updated_toe = f"toe{updated_toe_input}" if not updated_toe_input.startswith("toe") else updated_toe_input # Format toe
         logging.debug(f"Formatted toe: {updated_toe}")
 
+        # Convert input str days into date object for better data processing
         updated_birth_date = mut.convert_to_date(updated_birth_date_str)
         if updated_breed_date_str and updated_breed_date_str != "Non Applicable":
             updated_breed_date = mut.convert_to_date(updated_breed_date_str)
-        else: updated_breed_date = None
+        else: 
+            updated_breed_date = None
         
         age = mut.date_to_days(updated_birth_date)
         breed_days = mut.date_to_days(updated_breed_date) if updated_breed_date else None
@@ -337,13 +337,15 @@ class MouseEditor(QtWidgets.QDialog):
         self.mouseDB[mouse_key_to_update]["genotype"] = updated_genotype
         self.mouseDB[mouse_key_to_update]["birthDate"] = updated_birth_date
         self.mouseDB[mouse_key_to_update]["age"] = age
-        self.mouseDB[mouse_key_to_update]["breedDate"] = updated_breed_date if updated_breed_date else None
+        self.mouseDB[mouse_key_to_update]["breedDate"] = updated_breed_date
         self.mouseDB[mouse_key_to_update]["breedDays"] = breed_days
         logging.debug(f"Mouse {selected_id} data updated in mouseDB.")
         
         self.gui.determine_save_status() # Use gui's method to update save button state
         QMessageBox.information(self, "Success", f"Mouse entry {selected_id} updated.")
         self._close_and_refresh()
+
+    #########################################################################################################################
 
     def _close_and_refresh(self):
         """Closes the edit window and refreshes the GUI."""
@@ -352,3 +354,10 @@ class MouseEditor(QtWidgets.QDialog):
         self.gui.redraw_canvas()
         self.gui.determine_save_status()
         logging.debug("Edit window closed and GUI refreshed.")
+
+    def _update_id_animation(self):
+        """Updates the ID display with a random ID."""
+        if self.reroll_active:
+            self.disp_id_entry.setText(mut.generate_random_id())
+        else:
+            self.reroll_timer.stop()
