@@ -104,12 +104,6 @@ class MouseDatabaseGUI:
         if not self.file_path:
             logging.debug("No file selected in load_excel_file.")
             return False
-        # Create backup before processing
-        if not self.is_debug:
-            self.backup_file = self._create_backup(self.file_path)
-            logging.debug(f"Backup created: {self.backup_file}")
-        else:
-            logging.debug("Debugging! No backup will be generated!")
         self.is_saved = True
         try:
             mio.validate_excel(self.file_path)
@@ -130,27 +124,30 @@ class MouseDatabaseGUI:
     def save_changes(self):
         logging.debug("save_changes called.")
         try:
-            if self.visualizer and hasattr(self.visualizer, "waiting_room_mice") and self.visualizer.waiting_room_mice:
+            if self.visualizer and self.visualizer.mice_status.waiting:
                 messagebox.showerror("Save Blocked","Cannot save while mice are in waiting room")
-                return False
-            if self.mouseDB and self.processed_data and self.file_path:
-                output_dir = os.path.dirname(self.file_path)
-                log_file = mio.mice_changelog(self.processed_data, self.mouseDB, output_dir)
-                if self.is_debug: # Save in debug no matter what
-                    file_suffix = os.path.splitext(self.file_path)[1]
-                    file_without_suffix = os.path.splitext(self.file_path)[0]
-                    debug_filepath = f"{file_without_suffix}_DEBUG{file_suffix}" 
-                    mio.write_processed_data_to_excel(debug_filepath, self.mouseDB)
-                    logging.info(f"Changes logged and saved to: {log_file}")                        
-                    logging.debug(f"Debugging! Will save to {debug_filepath}!")
-                    self.is_saved = True
-                    self.save_button["state"] = tk.DISABLED
-                elif log_file:
-                    messagebox.showinfo("Changes Logged", f"Mice changes\nLogged to: {log_file}")
-                    mio.write_processed_data_to_excel(self.file_path, self.mouseDB)
-                else:
-                    messagebox.showinfo("Changes Not Logged", "No changes detected, save operation cancelled!")
-                    logging.info("No changes detected, save operation cancelled.")
+                return
+            output_dir = os.path.dirname(self.file_path)
+            log_file = mio.mice_changelog(self.processed_data, self.mouseDB, output_dir)
+            if self.is_debug: # Save in debug no matter what
+                file_suffix = os.path.splitext(self.file_path)[1]
+                file_without_suffix = os.path.splitext(self.file_path)[0]
+                debug_filepath = f"{file_without_suffix}_DEBUG{file_suffix}" 
+                mio.write_processed_data_to_excel(debug_filepath, self.mouseDB)                   
+                logging.debug(f"Debugging! Will save to {debug_filepath}!")
+                return
+            if not log_file:
+                logging.error("Error generating log file, save operation cancelled.")
+                messagebox.showinfo("Changes Not Logged", f"Log file fail to generate. \n{traceback.format_exc()}")
+                return
+            if not mio.create_backup(self.file_path):
+                logging.error("Error generating backup, save operation cancelled.")
+                messagebox.showinfo("Backup Not created", f"Fail to create backup. \n{traceback.format_exc()}")
+
+            logging.info(f"Changes logged and saved to: {log_file}")
+            messagebox.showinfo("Changes Logged", f"Mice changes Logged to: \n{log_file}")
+            if mio.write_processed_data_to_excel(self.file_path, self.mouseDB):
+                self.processed_data = copy.deepcopy(self.mouseDB) # Update the reference data upon successfully saving
         except Exception as e:
             logging.error(f"Failed to save Excel file: {e}", exc_info=True)
             messagebox.showerror("Error", f"Failed to save Excel file: {e}\n{traceback.format_exc()}")
@@ -221,8 +218,8 @@ class MouseDatabaseGUI:
         logging.debug("family_tree called.")
         try:
             # Create a new instance of MouseVisualizer for the family tree window
-            family_tree_window = mped.MousePedigree(self.master, self.mouseDB)
-            family_tree_window.display_family_tree_window(self.mouseDB)
+            self.pedigree = mped.MousePedigree(self.master, self.mouseDB)
+            pedigree_window = self.pedigree.display_family_tree_window()
             logging.debug("Family tree window displayed successfully.")
         except Exception as e:
             logging.error(f"Error displaying pedigree: {e}", exc_info=True)
@@ -452,20 +449,6 @@ class MouseDatabaseGUI:
 
     #########################################################################################################################
 
-    def _create_backup(self, excel_file):
-        """Creates backup of original Excel file"""
-        current_time = datetime.now().time()
-        formatted_time = current_time.strftime("%H-%M-%S")
-        excel_filename = excel_file.removesuffix(".xlsx")
-        backup_file = f"{excel_filename}_{formatted_time}.xlsx"
-
-        try:
-            shutil.copy2(excel_file, backup_file)
-            return backup_file
-        except FileNotFoundError:
-            logging.error(f"Error: Original file '{excel_file}' not found. Cannot create backup.")
-            return None
-
     def commit_seppuku(self):
         """Save reminder and close application"""
         if not self.is_saved and not self.is_debug:
@@ -480,14 +463,7 @@ class MouseDatabaseGUI:
         if self.canvas_widget:
             self.canvas_widget.destroy()
         mut.cleanup()
-            
-        # Remove backup if no changes were made
-        if not self.is_saved and self.backup_file and os.path.exists(self.backup_file):
-            try:
-                os.remove(self.backup_file)
-            except Exception as e:
-                logging.error(f"Error removing backup file: {e}\n{traceback.format_exc()}")
-                
+
         self.master.destroy()
         self.master.quit()
 

@@ -11,14 +11,11 @@ def preprocess_df(df_data):
     df = df_data.copy()
     df = df.dropna(how="all")
     df = add_optional_cols(df)
-    df = df_categorize(df)
-    df = df_issue_ID(df)
+    df["category"] = df["cage"].apply(assign_category)
+    df = issue_id_df(df)
     df = df_date_to_days(df)
+    df = df.set_index('ID',drop=False, append=False, inplace=False, verify_integrity=False)
     return df
-
-def df_categorize(df_data):
-    df_data["category"] = df_data["cage"].apply(assign_category)
-    return df_data
 
 def assign_category(cage:str) -> str: 
     """Categorize mouse cages based on naming conventions.
@@ -53,13 +50,13 @@ def cleanup_optional_cols(df):
 
 ##########################################################################################################################
 
-def df_issue_ID(df_data):
+def issue_id_df(df):
     """Generate IDs for rows with missing/blank IDs, ensuring uniqueness."""
     # Identify rows needing IDs
-    ID_mask = df_data["ID"].isna() | (df_data["ID"] == "")
+    id_mask = df["ID"].isna() | (df["ID"] == "")
     
-    if not ID_mask.any():
-        return df_data
+    if not id_mask.any():
+        return df
 
     # Generate component IDs
     components = {
@@ -71,32 +68,32 @@ def df_issue_ID(df_data):
     }
     
     for col, (src_col, processor) in components.items():
-        df_data.loc[ID_mask, col] = df_data.loc[ID_mask, src_col].apply(processor)
+        df.loc[id_mask, col] = df.loc[id_mask, src_col].apply(processor)
 
     # Compose full IDs
-    df_data.loc[ID_mask, "ID"] = df_data.loc[ID_mask].apply(
-        lambda row: f"{row["genoID"]}{row["dobID"]}{row["toeID"]}{row["sexID"]}{row["cageID"]}",
+    df.loc[id_mask, "ID"] = df.loc[id_mask].apply(
+        lambda row: f"{row['genoID']}{row['dobID']}{row['toeID']}{row['sexID']}{row['cageID']}",
         axis=1
     )
 
     # Handle duplicates and conflicts
-    new_ids = df_data.loc[ID_mask, "ID"]
-    existing_ids = df_data.loc[~ID_mask, "ID"]
+    new_ids = df.loc[id_mask, "ID"]
+    existing_ids = df.loc[~id_mask, "ID"]
     
     # Combined check for duplicates within new IDs and conflicts with existing
     needs_regeneration = new_ids.duplicated(keep=False) | new_ids.isin(existing_ids)
     
     if needs_regeneration.any():
         # Regenerate full random IDs for problematic cases
-        df_data.loc[needs_regeneration[needs_regeneration].index, "ID"] = \
-            df_data.loc[needs_regeneration[needs_regeneration].index].apply(
+        df.loc[needs_regeneration[needs_regeneration].index, "ID"] = \
+            df.loc[needs_regeneration[needs_regeneration].index].apply(
                 lambda _: generate_random_id(), axis=1
             )
         
     # Cleanup temporary columns
-    df_data.drop(list(components.keys()), axis=1, inplace=True, errors="ignore")
+    df.drop(list(components.keys()), axis=1, inplace=True, errors="ignore")
     
-    return df_data
+    return df
 
 def process_genotypeID(genotype: str) -> str:
     """Convert genotype to numeric code"""
@@ -170,6 +167,15 @@ def process_cageID(cage: str) -> str:
 
 ##########################################################################################################################
 
+def process_df_before_export(df, date_cols):
+    df = df_date_col_formatter(df, date_cols) # Format the dates into strings so they won"t get ruined by Excel
+    df = cleanup_optional_cols(df)
+    df = df.fillna("-")
+    df.reset_index(level=None, drop=True, inplace=False)
+    return df
+
+##########################################################################################################################
+
 def df_date_col_formatter(df, date_col):
     """Format date columns consistently to 'yy-mm-dd' strings"""
     for col in date_col:
@@ -226,7 +232,7 @@ def convert_to_date(date_val):
             return date_val
         # Try multiple common formats to parse if string
         if isinstance(date_val, str):
-            for fmt in ("%y-%m-%d", "%Y-%m-%d", "%m/%d/%Y", "%d-%b-%y"):
+            for fmt in ("%y-%m-%d", "%Y-%m-%d", "%d-%b-%y", "%d-%b-%Y", "%m/%d/%Y", "%Y/%m/%d", "%y/%m/%d"):
                 try:
                     return datetime.strptime(date_val, fmt).date()
                 except ValueError:
