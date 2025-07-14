@@ -430,7 +430,6 @@ class MouseDatabaseGUI(QWidget):
         if self.canvas_widget:
             self.canvas_widget.deleteLater() # Use deleteLater for proper Qt object deletion
             self.canvas_widget = None
-        mut.cleanup()
 
     def _update_category_ui(self):
         """Update UI elements for current category"""
@@ -445,7 +444,6 @@ class MouseDatabaseGUI(QWidget):
 
     def _prev_category(self):
         """Navigate to previous category"""
-        mut.cleanup()
         self.category_index = (self.category_index - 1) % len(self.category_names)
         self.current_category = self.category_names[self.category_index]
         self._update_category_ui()
@@ -453,7 +451,6 @@ class MouseDatabaseGUI(QWidget):
 
     def _next_category(self):
         """Navigate to next category"""
-        mut.cleanup()
         self.category_index = (self.category_index + 1) % len(self.category_names)
         self.current_category = self.category_names[self.category_index]
         self._update_category_ui()
@@ -500,7 +497,6 @@ class MouseDatabaseGUI(QWidget):
         # Clean up resources
         if self.canvas_widget:
             self.canvas_widget.deleteLater()
-        mut.cleanup()
 
         event.accept() # Accept the close event
 
