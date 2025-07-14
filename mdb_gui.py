@@ -89,7 +89,9 @@ class MouseDatabaseGUI(QWidget):
         self.processed_data = None
         self.mouseDB = None
 
-        self.current_category = None
+        # The category is based on genotype and breeding strategy, unlike self.visualizer.status which is based on mice's cage status in a category
+        # category1 ( status1, status2, status3 ... ), category 2 ( status1, status2, status3 ... ), ...
+        self.current_category = None 
         self.category_index = 0
         self.category_names = ["BACKUP", "NEX + PP2A", "CMV + PP2A"]
 
@@ -107,7 +109,7 @@ class MouseDatabaseGUI(QWidget):
         self.last_action = "analyze"
         self.is_saved = True
 
-        self.is_debug = False # Make if false before shipping
+        self.is_debug = True # Make if False before merging to main
         if self.is_debug: logging.getLogger().setLevel(logging.DEBUG)
         logging.debug(f"is_debug set to: {self.is_debug}")
 
@@ -356,7 +358,7 @@ class MouseDatabaseGUI(QWidget):
         mouseID = mouse.get("ID", "N/A")
 
         if len(genotype) < 15:
-            genotype = genotype.center(35)
+            genotype = genotype.center(20)
         
         metadata_window = QtWidgets.QDialog(self)
         metadata_window.setWindowTitle("Mouse Metadata")

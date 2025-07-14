@@ -2,8 +2,6 @@ import random
 import pandas as pd
 from datetime import date, datetime
 
-import matplotlib.pyplot as plt
-
 import traceback
 import logging
 

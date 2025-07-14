@@ -24,14 +24,10 @@ class MouseVisualizer(QWidget):
         self.gui.setGeometry(300, 300, 1000, 700) # x, y, width, height
         self.graphics_view = None # For QGraphicsView
         self.graphics_scene = None # For QGraphicsScene
-        self.setLayout(self.main_layout)
 
         MiceContainers = namedtuple("MiceContainers", ["regular", "waiting", "death"])
         self.mice_status = MiceContainers(regular={}, waiting={}, death={})
         self.mouse_artists = []
-
-        self.ax = None
-        self.mpl_canvas = None
 
     def display_cage_monitor(self):
         """
