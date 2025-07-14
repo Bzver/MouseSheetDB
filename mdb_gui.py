@@ -1,11 +1,9 @@
 import os
-import shutil
 import copy
 
-from datetime import datetime
-
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from PySide6 import QtWidgets
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QWidget, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox
 
 import mdb_edit as medit
 import mdb_io as mio
@@ -19,38 +17,71 @@ import logging
 
 logging.getLogger().setLevel(logging.INFO)
 
-class MouseDatabaseGUI:
-    def __init__(self, master):
-        self.master = master
+class MouseDatabaseGUI(QWidget):
+    def __init__(self):
+        super().__init__()
         logging.info("MouseDatabaseGUI initialized.")
 
-        master.title("Excel Analyzer V2.5")
+        self.setWindowTitle("MiceDatabase V3.0")
 
-        self.button_frame = tk.Frame(master)
-        self.button_frame.pack()
-        self.browse_button = tk.Button(self.button_frame, text="Browse", command=self.browse_file)
-        self.browse_button.pack(side=tk.LEFT, padx=40)
-        self.analyze_button = tk.Button(self.button_frame, text="Analyze", command=self.analyze_data, state=tk.DISABLED)
-        self.analyze_button.pack(side=tk.LEFT, padx=5)
-        self.monitor_button = tk.Button(self.button_frame, text="Monitor", command=self.monitor_cages, state=tk.DISABLED)
-        self.monitor_button.pack(side=tk.LEFT, padx=5)
-        self.tree_button = tk.Button(self.button_frame, text="Pedigree", command=self.family_tree, state=tk.DISABLED)
-        self.tree_button.pack(side=tk.LEFT, padx=5)
-        self.save_button = tk.Button(self.button_frame, text="Save", command=self.save_changes, state=tk.DISABLED)
-        self.save_button.pack(side=tk.LEFT, padx=40)
+        self.main_layout = QVBoxLayout(self)
 
-        self.category_nav_frame = tk.Frame(master)
-        self.category_nav_frame.pack()
-        self.add_entries_button = tk.Button(self.category_nav_frame, text="Add Entries", command=self._add_new_mouse_entry, state=tk.DISABLED)
-        self.add_entries_button.pack(side=tk.LEFT, padx=5) 
-        self.prev_category_button = tk.Button(self.category_nav_frame, text="◄ Prev Category", command=self._prev_category, state=tk.DISABLED)
-        self.prev_category_button.pack(side=tk.LEFT)
-        self.category_textbox = tk.Entry(self.category_nav_frame, width=12, state="readonly")
-        self.category_textbox.pack(side=tk.LEFT, padx=10)
-        self.next_category_button = tk.Button(self.category_nav_frame, text="Next Category ►", command=self._next_category, state=tk.DISABLED)
-        self.next_category_button.pack(side=tk.LEFT)
-        self.load_changelog_button = tk.Button(self.category_nav_frame, text="Load Changes", command=self.load_changelog, state=tk.DISABLED)
-        self.load_changelog_button.pack(side=tk.LEFT, padx=5)
+        # Top button frame
+        self.button_layout = QHBoxLayout()
+        self.main_layout.addLayout(self.button_layout)
+
+        self.browse_button = QPushButton("Browse")
+        self.browse_button.clicked.connect(self.browse_file)
+        self.button_layout.addWidget(self.browse_button)
+
+        self.analyze_button = QPushButton("Analyze")
+        self.analyze_button.clicked.connect(self.analyze_data)
+        self.analyze_button.setEnabled(False)
+        self.button_layout.addWidget(self.analyze_button)
+
+        self.monitor_button = QPushButton("Monitor")
+        self.monitor_button.clicked.connect(self.monitor_cages)
+        self.monitor_button.setEnabled(False)
+        self.button_layout.addWidget(self.monitor_button)
+
+        self.tree_button = QPushButton("Pedigree")
+        self.tree_button.clicked.connect(self.family_tree)
+        self.tree_button.setEnabled(False)
+        self.button_layout.addWidget(self.tree_button)
+
+        self.save_button = QPushButton("Save")
+        self.save_button.clicked.connect(self.save_changes)
+        self.save_button.setEnabled(False)
+        self.button_layout.addWidget(self.save_button)
+
+        # Category navigation frame
+        self.category_nav_layout = QHBoxLayout()
+        self.main_layout.addLayout(self.category_nav_layout)
+
+        self.add_entries_button = QPushButton("Add Entries")
+        self.add_entries_button.clicked.connect(self._add_new_mouse_entry)
+        self.add_entries_button.setEnabled(False)
+        self.category_nav_layout.addWidget(self.add_entries_button)
+
+        self.prev_category_button = QPushButton("◄ Prev Category")
+        self.prev_category_button.clicked.connect(self._prev_category)
+        self.prev_category_button.setEnabled(False)
+        self.category_nav_layout.addWidget(self.prev_category_button)
+
+        self.category_textbox = QLineEdit()
+        self.category_textbox.setReadOnly(True)
+        self.category_textbox.setFixedWidth(200) # Adjust width as needed
+        self.category_nav_layout.addWidget(self.category_textbox)
+
+        self.next_category_button = QPushButton("Next Category ►")
+        self.next_category_button.clicked.connect(self._next_category)
+        self.next_category_button.setEnabled(False)
+        self.category_nav_layout.addWidget(self.next_category_button)
+
+        self.load_changelog_button = QPushButton("Load Changes")
+        self.load_changelog_button.clicked.connect(self.load_changelog)
+        self.load_changelog_button.setEnabled(False)
+        self.category_nav_layout.addWidget(self.load_changelog_button)
 
         self.file_path = None
         self.backup_file = None
@@ -85,22 +116,21 @@ class MouseDatabaseGUI:
     def browse_file(self):
         logging.debug("browse_file called.")
         if not self.is_saved:
-            response = messagebox.askyesno(
-                "Unsaved Changes",
-                "You have unsaved changes. Do you really want to load another excel without saving?"
-            )
-            if not response:
-                return  # Prevent closing if the user chooses not to close
+            reply = QMessageBox.question(self, "Unsaved Changes",
+            "You have unsaved changes. Do you really want to load another excel without saving?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
         self._reset_state()
         if self.load_excel_file():
-            messagebox.showinfo("Success", "File loaded successfully!")
-            self.load_changelog_button["state"] = tk.NORMAL
-            self.add_entries_button["state"] = tk.NORMAL
+            QMessageBox.information(self, "Success", "File loaded successfully!")
+            self.load_changelog_button.setEnabled(True)
+            self.add_entries_button.setEnabled(True)
             self._on_category_selection_changed()  # Trigger initial analysis
             logging.debug("File loaded successfully and initial analysis triggered.")
 
     def load_excel_file(self):
-        self.file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx;*.xls")])
+        self.file_path, _ = QFileDialog.getOpenFileName(self, "Open Excel File", "", "Excel Files (*.xlsx *.xls)")
         if not self.file_path:
             logging.debug("No file selected in load_excel_file.")
             return False
@@ -112,12 +142,12 @@ class MouseDatabaseGUI:
             self.current_category = self.category_names[0]
             self._update_category_ui()
             if self.processed_data is None:
-                raise Exception("Failed to preprocess Excel data") 
+                raise Exception("Failed to preprocess Excel data")
             logging.debug("Excel file loaded and preprocessed successfully.")
             return True
         except Exception as e:
             logging.error(f"Error loading/preprocessing file: {e}", exc_info=True)
-            messagebox.showerror("Error", f"Error loading/preprocessing file: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Error", f"Error loading/preprocessing file: {e}\n{traceback.format_exc()}")
             self._reset_state()
             return False
 
@@ -125,43 +155,41 @@ class MouseDatabaseGUI:
         logging.debug("save_changes called.")
         try:
             if self.visualizer and self.visualizer.mice_status.waiting:
-                messagebox.showerror("Save Blocked","Cannot save while mice are in waiting room")
+                QMessageBox.critical(self, "Save Blocked","Cannot save while mice are in waiting room")
                 return
             output_dir = os.path.dirname(self.file_path)
             log_file = mio.mice_changelog(self.processed_data, self.mouseDB, output_dir)
             if self.is_debug: # Save in debug no matter what
                 file_suffix = os.path.splitext(self.file_path)[1]
                 file_without_suffix = os.path.splitext(self.file_path)[0]
-                debug_filepath = f"{file_without_suffix}_DEBUG{file_suffix}" 
-                mio.write_processed_data_to_excel(debug_filepath, self.mouseDB)                   
+                debug_filepath = f"{file_without_suffix}_DEBUG{file_suffix}"
+                mio.write_processed_data_to_excel(debug_filepath, self.mouseDB)
                 logging.debug(f"Debugging! Will save to {debug_filepath}!")
                 return
             if not log_file:
                 logging.error("Error generating log file, save operation cancelled.")
-                messagebox.showinfo("Changes Not Logged", f"Log file fail to generate. \n{traceback.format_exc()}")
+                QMessageBox.information(self, "Changes Not Logged", f"Log file fail to generate. \n{traceback.format_exc()}")
                 return
             if not mio.create_backup(self.file_path):
                 logging.error("Error generating backup, save operation cancelled.")
-                messagebox.showinfo("Backup Not created", f"Fail to create backup. \n{traceback.format_exc()}")
+                QMessageBox.information(self, "Backup Not created", f"Fail to create backup. \n{traceback.format_exc()}")
 
             logging.info(f"Changes logged and saved to: {log_file}")
-            messagebox.showinfo("Changes Logged", f"Mice changes Logged to: \n{log_file}")
+            QMessageBox.information(self, "Changes Logged", f"Mice changes Logged to: \n{log_file}")
             if mio.write_processed_data_to_excel(self.file_path, self.mouseDB):
                 self.processed_data = copy.deepcopy(self.mouseDB) # Update the reference data upon successfully saving
         except Exception as e:
             logging.error(f"Failed to save Excel file: {e}", exc_info=True)
-            messagebox.showerror("Error", f"Failed to save Excel file: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Error", f"Failed to save Excel file: {e}\n{traceback.format_exc()}")
             return
 
     def load_changelog(self):
         """Loads a changelog file and applies changes to the current data."""
         if not self.processed_data:
             logging.warning("load_changelog: No data loaded.")
-            messagebox.showwarning("No Data Loaded", "Please load an Excel file first.")
+            QMessageBox.warning(self, "No Data Loaded", "Please load an Excel file first.")
             return
-        changelog_file_path = filedialog.askopenfilename(
-            filetypes=[("Excel files", "*.xlsx;*.xls")]
-        )
+        changelog_file_path, _ = QFileDialog.getOpenFileName(self, "Open Changelog File", "", "Excel Files (*.xlsx *.xls)")
         if not changelog_file_path:
             logging.debug("No changelog file selected.")
             return
@@ -170,16 +198,16 @@ class MouseDatabaseGUI:
             if exception_entries:
                 result_message.append("\nThe following issues were encountered:\n" +"\n".join(exception_entries))
                 logging.warning(f"Changelog applied with issues: {exception_entries}")
-                messagebox.showwarning("Changelog Applied with Issues","\n".join(result_message))
+                QMessageBox.warning(self, "Changelog Applied with Issues","\n".join(result_message))
             else:
                 logging.info("Changelog applied successfully.")
-                messagebox.showinfo("Changelog Applied","\n".join(result_message))
+                QMessageBox.information(self, "Changelog Applied","\n".join(result_message))
             self.is_saved = False
-            self.save_button["state"] = tk.NORMAL
+            self.save_button.setEnabled(True)
             self._perform_analysis_action()
         except Exception as e:
             logging.error(f"Error loading or applying changelog: {e}", exc_info=True)
-            messagebox.showerror("Error",f"Error loading or applying changelog: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Error",f"Error loading or applying changelog: {e}\n{traceback.format_exc()}")
 
     #########################################################################################################################
 
@@ -188,89 +216,92 @@ class MouseDatabaseGUI:
         self.last_action = "analyze" # Update last action
         logging.debug("analyze_data called.")
         try:
-            self.visualizer = mvis.MouseVisualizer(self.master, None, self.mouseDB, self.current_category, self.canvas_widget)
+            # Pass the GUI instance (self) as the parent for the visualizer
+            self.visualizer = mvis.MouseVisualizer(self, self.mouseDB, self.current_category, self.canvas_widget)
             self.canvas_widget = self.visualizer.display_genotype_bar_plot()
             if self.canvas_widget:
+                self.main_layout.addWidget(self.canvas_widget) # Add canvas to the main layout
                 logging.debug("Genotype bar plot displayed successfully.")
             else:
                 logging.warning("Genotype bar plot was not displayed (canvas_widget is None).")
         except Exception as e:
             logging.error(f"Error plotting analysis data: {e}", exc_info=True)
-            messagebox.showerror("Error", f"Error plotting analysis data: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Error", f"Error plotting analysis data: {e}\n{traceback.format_exc()}")
 
     def monitor_cages(self):
         """Prepares data for the cage monitor visualization and passes it to the visualizer."""
         self.last_action = "monitor"
         logging.debug("monitor_cages called.")
         try:
-            self.visualizer = mvis.MouseVisualizer(self.master, self, self.mouseDB, self.current_category, self.canvas_widget)
+            self.visualizer = mvis.MouseVisualizer(self, self.mouseDB, self.current_category, self.canvas_widget)
             self.canvas_widget = self.visualizer.display_cage_monitor()
             if self.canvas_widget:
+                self.main_layout.addWidget(self.canvas_widget) # Add canvas to the main layout
                 logging.debug("Cage monitor displayed successfully.")
             else:
                 logging.warning("Cage monitor was not displayed (canvas_widget is None).")
         except Exception as e:
             logging.error(f"Error displaying cage monitor: {e}", exc_info=True)
-            messagebox.showerror("Error", f"Error displaying cage monitor: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Error", f"Error displaying cage monitor: {e}\n{traceback.format_exc()}")
 
     def family_tree(self):
         """Prepares data for the family tree visualization window and passes it to pedigree."""
         logging.debug("family_tree called.")
         try:
-            # Create a new instance of MouseVisualizer for the family tree window
-            self.pedigree = mped.MousePedigree(self.master, self.mouseDB)
-            pedigree_window = self.pedigree.display_family_tree_window()
+            # Create a new window for pedigree display in the form of MousePedigree instance, passing self as the parent
+            self.pedigree = mped.MousePedigree(self, self.mouseDB)
+            self.pedigree.display_family_tree_window()
             logging.debug("Family tree window displayed successfully.")
         except Exception as e:
             logging.error(f"Error displaying pedigree: {e}", exc_info=True)
-            messagebox.showerror("Error", f"Error displaying pedigree: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Error", f"Error displaying pedigree: {e}\n{traceback.format_exc()}")
 
     #########################################################################################################################
 
-    def show_context_menu(self):
-        menu = tk.Menu(self.master, tearoff=0)
+    def show_context_menu(self, position):
+        menu = QtWidgets.QMenu(self)
 
         is_in_waiting_room = self.selected_mouse.get("nuCA") == "Waiting Room"
         is_on_death_row = self.selected_mouse.get("nuCA") == "Death Row"
 
         if is_on_death_row:
-            menu.add_command(label="Release from Death Row", command=lambda:self._transfer_mouse_action("from_death_row"))
+            menu.addAction("Release from Death Row", lambda: self._transfer_mouse_action("from_death_row"))
         else:
-            menu.add_command(label="Transfer to current cages", command=lambda:self._transfer_mouse_action("existing_cage"))
-            menu.add_command(label="Transfer to Death Row", command=lambda:self._transfer_mouse_action("death_row"))
+            menu.addAction("Transfer to current cages", lambda: self._transfer_mouse_action("existing_cage"))
+            menu.addAction("Transfer to Death Row", lambda: self._transfer_mouse_action("death_row"))
             if is_in_waiting_room:
-                menu.add_command(label="Transfer to a new cage", command=lambda:self._transfer_mouse_action("new_cage"))
-            else: # in reguular cages
-                menu.add_command(label="Transfer to waiting room", command=lambda:self._transfer_mouse_action("waiting_room"))
-                menu.add_command(label="Add to pedigree graph", command=lambda:mped.add_to_family_tree(self.selected_mouse))
-                menu.add_command(label="Edit mouse entry", command=self._edit_selected_mouse_entry)
+                menu.addAction("Transfer to a new cage", lambda: self._transfer_mouse_action("new_cage"))
+            else: # in regular cages
+                menu.addAction("Transfer to waiting room", lambda: self._transfer_mouse_action("waiting_room"))
+                menu.addAction("Add to pedigree graph", lambda: mped.add_to_family_tree(self.selected_mouse))
+                menu.addAction("Edit mouse entry", self._edit_selected_mouse_entry)
 
-        try: # Display the menu at the mouse click position using Tkinter"s pointer coordinates
-            menu.tk_popup(self.master.winfo_pointerx(), self.master.winfo_pointery())
-        finally:
-            menu.grab_release()
+        menu.exec(self.mapToGlobal(position))
 
     def mouse_edit(self):
         """Prepares data for the mouse editing and passes it to editor."""
         logging.debug("mouse_edit called.")
         try:
-            self.editor = medit.MouseEditor(self.master, self.mouseDB, self, self.selected_mouse)
+            # Pass self (the GUI instance) as the parent for the editor
+            self.editor = medit.MouseEditor(self, self.mouseDB, self, self.selected_mouse)
+            self.editor.exec()
             logging.debug("Mouse editor initialized successfully.")
         except Exception as e:
             logging.error(f"Error editing mice: {e}", exc_info=True)
-            messagebox.showerror("Error", f"Error editing mice: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Error", f"Error editing mice: {e}\n{traceback.format_exc()}")
 
     def _edit_selected_mouse_entry(self): # Wrapper for edit
-        editor_instance = medit.MouseEditor(self.master, self, self.mouseDB,  self.selected_mouse, mode="edit")
-        editor_instance.edit_mouse_entries()
+        editor_instance = medit.MouseEditor(self, self.mouseDB, self.selected_mouse, mode="edit")
+        editor_instance.exec()
 
     def _add_new_mouse_entry(self): # Wrapper for add
-        editor_instance = medit.MouseEditor(self.master, self, self.mouseDB,  None, mode="new")
-        editor_instance.edit_mouse_entries()
+        editor_instance = medit.MouseEditor(self, self.mouseDB,  None, mode="new")
+        editor_instance.exec()
 
     def _transfer_mouse_action(self, action_type): # Wrapper for transfer
         logging.debug(f"GUI: Initiating transfer action: {action_type} for mouse ID: {self.selected_mouse.get('ID')}")
-        transfer_instance = mtrans.MouseTransfer(self.master, self.mouseDB, self, self.current_category, self.visualizer.mice_status)
+        # Pass self (the GUI instance) as the parent for the transfer dialog
+        transfer_instance = mtrans.MouseTransfer(self, self.mouseDB, self.current_category, self.visualizer.mice_status)
 
         if action_type == "death_row":
             transfer_instance.transfer_to_death_row()
@@ -283,45 +314,52 @@ class MouseDatabaseGUI:
         elif action_type == "from_death_row":
             transfer_instance.transfer_from_death_row()
         else:
-            messagebox.showerror("Error", f"Unknown transfer action: {action_type}")
+            QMessageBox.critical(self, "Error", f"Unknown transfer action: {action_type}")
 
     #########################################################################################################################
 
-    def on_hover(self, event):
-        if event.inaxes and event.xdata is not None and event.ydata is not None:
-            for artist, mouse in self.visualizer.mouse_artists:
-                if artist.contains(event)[0]:
-                    if self.leaving_timer:  # Cancel pending close timer if exists
-                        self.master.after_cancel(self.leaving_timer)
-                        self.leaving_timer = None
+    def on_hover(self, event, graphics_view):
+        # Map event position to scene coordinates
+        scene_position = graphics_view.mapToScene(event.position().toPoint())
+        item = graphics_view.scene().itemAt(scene_position, graphics_view.transform())
 
-                    # Skip if same mouse is already highlighted
-                    if (self.last_hovered_mouse and 
-                        self.last_hovered_mouse.get("ID") == mouse.get("ID")):
-                        return
+        if item and isinstance(item, QtWidgets.QGraphicsEllipseItem):
+            mouse = item.data(0) # Retrieve stored mouse data
+            if mouse:
+                if self.leaving_timer and self.leaving_timer.isActive():
+                    self.leaving_timer.stop()
+                    self.leaving_timer = None
 
-                    if self.current_metadata_window: # Destroy current window when hover on new mouse
-                        self.current_metadata_window.destroy()
-
-                    self.show_metadata_window(mouse)
-                    self.last_hovered_mouse = mouse
+                if self.last_hovered_mouse and self.last_hovered_mouse.get("ID") == mouse.get("ID"):
                     return
 
-            self.schedule_close_metadata_window()
+                if self.current_metadata_window:
+                    self.current_metadata_window.close()
 
-    def on_click(self, event):
-        if event.button == 1 and event.inaxes:
-            for artist, mouse in self.visualizer.mouse_artists:
-                if artist.contains(event)[0]:
+                self.show_metadata_window(mouse, graphics_view.mapToGlobal(event.position().toPoint()))
+                self.selected_mouse = mouse # Set selected mouse on hover
+                self.last_hovered_mouse = mouse
+                return
+        
+        self.schedule_close_metadata_window()
+    
+    def on_click(self, event, graphics_view):
+        if event.button() == Qt.LeftButton:
+            scene_position = graphics_view.mapToScene(event.position().toPoint())
+            item = graphics_view.scene().itemAt(scene_position, graphics_view.transform())
+
+            if item and isinstance(item, QtWidgets.QGraphicsEllipseItem):
+                mouse = item.data(0)
+                if mouse:
                     self.selected_mouse = mouse
-                    self.show_context_menu()
+                    self.show_context_menu(graphics_view.mapToGlobal(event.position().toPoint()))
                     return
                 
-    #########################################################################################################################         
+    #########################################################################################################################
 
-    def show_metadata_window(self, mouse):
+    def show_metadata_window(self, mouse, global_pos):
         if self.current_metadata_window:
-            self.current_metadata_window.destroy()
+            self.current_metadata_window.close()
 
         sex = mouse.get("sex", "N/A")
         toe = mouse.get("toe", "N/A")
@@ -330,42 +368,56 @@ class MouseDatabaseGUI:
         mouseID = mouse.get("ID", "N/A")
 
         if len(genotype) < 15:
-            genotype = genotype.center(25," ") # Padded the short genotype for a centered look
+            genotype = genotype.center(35)
         
-        metadata_window = tk.Toplevel(self.master)
-        metadata_window.title("Mouse Metadata")
-        metadata_window.geometry("+100+100")
+        metadata_window = QtWidgets.QDialog(self)
+        metadata_window.setWindowTitle("Mouse Metadata")
+        metadata_window.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint) # ToolTip for no taskbar entry, Frameless for no title bar
+        metadata_window.setAttribute(Qt.WA_DeleteOnClose) # Ensure it's deleted when closed
 
-        style = ttk.Style()
-        style.configure("Metadata.TLabel", font=("Arial", 9), padding=5)
+        layout = QVBoxLayout(metadata_window)
+        layout.setContentsMargins(5, 5, 5, 5) # Smaller margins
+        
         separ_geno = "------GENOTYPE------"
         separ_ID = "------------I-D------------"
         message = (f"Sex: {sex}   Toe: {toe}\nAge: {age}d ({int(age) // 7}w{int(age) % 7}d)\n{separ_geno}\n{genotype}\n{separ_ID}\n{mouseID}")
-        label = ttk.Label(metadata_window, text=message, style="Metadata.TLabel")
-        label.pack(padx=10, pady=10)
+        label = QtWidgets.QLabel(message)
+        label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet("font-family: Arial; font-size: 9pt; padding: 5px; background-color: lightyellow; border: 1px solid gray;") # Added background and border
+        layout.addWidget(label)
+
+        metadata_window.setLayout(layout)
+        metadata_window.adjustSize()
+        metadata_window.move(global_pos) # Position at mouse cursor
+        metadata_window.show()
 
         self.current_metadata_window = metadata_window
 
     def schedule_close_metadata_window(self):
         if self.current_metadata_window and not self.leaving_timer:
-            self.leaving_timer = self.master.after(100, self.close_metadata_window)
+            self.leaving_timer = QTimer(self) # Parent the timer to self
+            self.leaving_timer.setSingleShot(True)
+            self.leaving_timer.timeout.connect(self.close_metadata_window)
+            self.leaving_timer.start(100)
 
     def close_metadata_window(self):
         if self.current_metadata_window:
-            self.current_metadata_window.destroy()
+            self.current_metadata_window.close()
             self.current_metadata_window = None
         self.last_hovered_mouse = None
-        self.leaving_timer = None
-
+        if self.leaving_timer:
+            self.leaving_timer.stop()
+            self.leaving_timer = None
+            
     #########################################################################################################################
 
     def determine_save_status(self):
         if mio.find_changes_for_changelog(self.processed_data, self.mouseDB, check_only=True):
             self.is_saved = False
-            self.save_button["state"] = tk.NORMAL
+            self.save_button.setEnabled(True)
         else:
             self.is_saved = True
-            self.save_button["state"] = tk.DISABLED
+            self.save_button.setEnabled(False)
 
     def redraw_canvas(self):
         """Public method to trigger canvas redraw based on current state."""
@@ -377,33 +429,31 @@ class MouseDatabaseGUI:
         self.category_names = ["BACKUP", "NEX + PP2A", "CMV + PP2A"]
         self.category_index = 0
         self.current_category = None
-        self.category_textbox.config(state="normal")
-        self.category_textbox.delete(0, tk.END)
-        self.category_textbox.config(state="readonly")
-        self.prev_category_button["state"] = tk.DISABLED
-        self.next_category_button["state"] = tk.DISABLED
-        self.analyze_button["state"] = tk.DISABLED
-        self.monitor_button["state"] = tk.DISABLED
-        self.tree_button["state"] = tk.DISABLED
-        self.save_button["state"] = tk.DISABLED
-        self.add_entries_button["state"] = tk.DISABLED
+        self.category_textbox.setReadOnly(False)
+        self.category_textbox.clear()
+        self.category_textbox.setReadOnly(True)
+        self.prev_category_button.setEnabled(False)
+        self.next_category_button.setEnabled(False)
+        self.analyze_button.setEnabled(False)
+        self.monitor_button.setEnabled(False)
+        self.tree_button.setEnabled(False)
+        self.save_button.setEnabled(False)
+        self.add_entries_button.setEnabled(False)
         if self.canvas_widget:
-            self.canvas_widget.destroy()
+            self.canvas_widget.deleteLater() # Use deleteLater for proper Qt object deletion
             self.canvas_widget = None
         mut.cleanup()
 
     def _update_category_ui(self):
         """Update UI elements for current category"""
-        filename = os.path.basename(self.file_path)
-        self.category_textbox.config(state="normal")
-        self.category_textbox.delete(0, tk.END)
-        self.category_textbox.insert(0, self.current_category)
-        self.category_textbox.config(state="readonly")
-        self.prev_category_button["state"] = tk.NORMAL
-        self.next_category_button["state"] = tk.NORMAL
-        self.analyze_button["state"] = tk.NORMAL
-        self.monitor_button["state"] = tk.NORMAL
-        self.tree_button["state"] = tk.NORMAL
+        self.category_textbox.setReadOnly(False)
+        self.category_textbox.setText(self.current_category.center(40))
+        self.category_textbox.setReadOnly(True)
+        self.prev_category_button.setEnabled(True)
+        self.next_category_button.setEnabled(True)
+        self.analyze_button.setEnabled(True)
+        self.monitor_button.setEnabled(True)
+        self.tree_button.setEnabled(True)
 
     def _prev_category(self):
         """Navigate to previous category"""
@@ -424,14 +474,14 @@ class MouseDatabaseGUI:
     def _on_category_selection_changed(self, event=None):
         """Handle category selection changes (UI updates only)"""
         if not self.current_category:
-            self.analyze_button["state"] = tk.DISABLED
-            self.monitor_button["state"] = tk.DISABLED
+            self.analyze_button.setEnabled(False)
+            self.monitor_button.setEnabled(False)
             return
 
-        self.analyze_button["state"] = tk.NORMAL
-        self.monitor_button["state"] = tk.NORMAL
+        self.analyze_button.setEnabled(True)
+        self.monitor_button.setEnabled(True)
         if self.canvas_widget:
-            self.canvas_widget.destroy()
+            self.canvas_widget.deleteLater()
             self.canvas_widget = None
 
         # Trigger analysis based on last action
@@ -439,7 +489,7 @@ class MouseDatabaseGUI:
 
     def _perform_analysis_action(self):
         if self.canvas_widget:
-            self.canvas_widget.destroy()
+            self.canvas_widget.deleteLater()
             self.canvas_widget = None
 
         if self.last_action == "monitor":
@@ -449,26 +499,26 @@ class MouseDatabaseGUI:
 
     #########################################################################################################################
 
-    def commit_seppuku(self):
-        """Save reminder and close application"""
+    def commit_seppuku(self, event):
+        """Handles the close event for the main window."""
         if not self.is_saved and not self.is_debug:
-            response = messagebox.askyesno(
-                "Unsaved Changes",
-                "You have unsaved changes. Do you really want to close without saving?"
-            )
-            if not response:
-                return  # Prevent closing if the user chooses not to close
+            reply = QMessageBox.question(self, "Unsaved Changes",
+            "You have unsaved changes. Do you really want to close without saving?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                event.ignore() # Ignore the close event
+                return
                 
         # Clean up resources
         if self.canvas_widget:
-            self.canvas_widget.destroy()
+            self.canvas_widget.deleteLater()
         mut.cleanup()
 
-        self.master.destroy()
-        self.master.quit()
+        event.accept() # Accept the close event
 
 # --- Main application setup ---
-root = tk.Tk()
-mdb_main = MouseDatabaseGUI(root)
-root.protocol("WM_DELETE_WINDOW", mdb_main.commit_seppuku)
-root.mainloop()
+if __name__ == "__main__":
+    app = QtWidgets.QApplication([])
+    mdb_main = MouseDatabaseGUI()
+    mdb_main.show()
+    app.exec()
