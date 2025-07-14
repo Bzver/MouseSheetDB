@@ -293,9 +293,6 @@ def genotype_abbreviation_color_picker(genotype_string):
 
     return geno_text, geno_color
 
-def cleanup():
-    plt.close("all")
-
 ##########################################################################################################################
 
 def generate_random_id():
