@@ -22,7 +22,6 @@ class MouseTransfer(QDialog):
         self.mice_status = mice_status
 
         self.selected_mouse = None
-        self.selected_target_cage = None
         self.new_cage_entry = None
 
     def transfer_to_existing_cage(self):
@@ -99,36 +98,35 @@ class MouseTransfer(QDialog):
         """
         logging.debug(f"TRANSFER: transfer_to_new_cage called for mouse ID: {self.gui.selected_mouse.get('ID')}")
         self.selected_mouse = self.gui.selected_mouse # Ensure we are working with the currently selected mouse from GUI
-        if self.selected_mouse is not None:
-            dialog = QDialog(self) # Parent is self (MouseTransfer dialog)
-            dialog.setWindowTitle("Enter New Cage Number")
-            dialog.setModal(True)
-            dialog.setGeometry(100, 300, 300, 150)
+        dialog = QDialog(self) # Parent is self (MouseTransfer dialog)
+        dialog.setWindowTitle("Enter New Cage Number")
+        dialog.setModal(True)
+        dialog.setGeometry(100, 300, 300, 150)
 
-            layout = QtWidgets.QVBoxLayout(dialog)
-            layout.addWidget(QLabel("Enter the new cage number:"))
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Enter the new cage number:"))
 
-            prefix = ""
-            if self.current_category == "NEX + PP2A":
-                prefix = "2-A-"
-            elif self.current_category == "CMV + PP2A":
-                prefix = "8-A-"
-            logging.debug(f"New cage prefix: {prefix}")
+        prefix = ""
+        if self.current_category == "NEX + PP2A":
+            prefix = "2-A-"
+        elif self.current_category == "CMV + PP2A":
+            prefix = "8-A-"
+        logging.debug(f"New cage prefix: {prefix}")
 
-            prefix_label = QLabel(prefix)
-            self.new_cage_entry = QtWidgets.QLineEdit()
-            
-            input_layout = QtWidgets.QHBoxLayout()
-            input_layout.addWidget(prefix_label)
-            input_layout.addWidget(self.new_cage_entry)
-            layout.addLayout(input_layout)
+        prefix_label = QLabel(prefix)
+        self.new_cage_entry = QtWidgets.QLineEdit()
+        
+        input_layout = QtWidgets.QHBoxLayout()
+        input_layout.addWidget(prefix_label)
+        input_layout.addWidget(self.new_cage_entry)
+        layout.addLayout(input_layout)
 
-            transfer_button = QPushButton("Transfer")
-            transfer_button.clicked.connect(lambda: self.validate_and_transfer(dialog))
-            layout.addWidget(transfer_button)
+        transfer_button = QPushButton("Transfer")
+        transfer_button.clicked.connect(lambda: self.validate_and_transfer(dialog))
+        layout.addWidget(transfer_button)
 
-            self.new_cage_entry.setFocus() # Set focus to the entry widget
-            dialog.exec() # Show as modal dialog
+        self.new_cage_entry.setFocus() # Set focus to the entry widget
+        dialog.exec() # Show as modal dialog
 
     def transfer_to_death_row(self):
         """
@@ -190,37 +188,34 @@ class MouseTransfer(QDialog):
 
     #########################################################################################################################
 
-    def confirm_transfer(self, dialog, target_cage):
+    def confirm_transfer(self, dialog, target_cage, mode="existing"):
         """
         Confirms and executes the transfer of a selected mouse to an existing cage.
         Args:
             dialog: The PySide6 QDialog window for cage selection.
             target_cage (str): The selected target cage number.
+            mode (str): "existing" or "new"
         """
         logging.debug(f"TRANSFER: confirm_transfer called for mouse ID: {self.gui.selected_mouse.get('ID')}")
-        self.selected_mouse = self.gui.selected_mouse # Ensure we are working with the currently selected mouse from GUI
+        self.selected_mouse = self.gui.selected_mouse # Ensure working with the currently selected mouse from GUI
         taCA = target_cage
-        if self.selected_mouse is not None:
-            logging.debug(f"TRANSFER: Before modification - Regular: {len(self.mice_status.regular)}, Waiting: {len(self.mice_status.waiting)}, Death: {len(self.mice_status.death)}")
 
-            current_cage = self.selected_mouse.get("nuCA")
-            if current_cage and current_cage in self.mice_status.regular:
-                mice_list = self.mice_status.regular[current_cage]
-                if self.selected_mouse in mice_list:
-                    mice_list.remove(self.selected_mouse)
-                    if not mice_list:
-                        del self.mice_status.regular[current_cage]
+        current_cage = self.selected_mouse.get("nuCA")
+        if current_cage in self.mice_status.regular:
+            mice_list = self.mice_status.regular[current_cage]
+            if self.selected_mouse in mice_list: # Remove mice from original cage display
+                mice_list.remove(self.selected_mouse)
+                if not mice_list: # Remove the empty cages
+                    del self.mice_status.regular[current_cage]
 
-            self._remove_from_dict("death")
-            self._remove_from_dict("waiting")
+        self._remove_from_dict("waiting")
 
-            self.selected_mouse["nuCA"] = taCA
-            self.selected_mouse["category"] = mut.assign_category(taCA)
+        self.selected_mouse["nuCA"] = taCA
+        self.selected_mouse["category"] = mut.assign_category(taCA) if mode == "existing" else self.current_category
 
-            if taCA not in self.mice_status.regular:
-                self.mice_status.regular[taCA] = []
-            self.mice_status.regular[taCA].append(self.selected_mouse)
-            logging.debug(f"TRANSFER: After modification - Regular: {len(self.mice_status.regular)}, Waiting: {len(self.mice_status.waiting)}, Death: {len(self.mice_status.death)}")
+        if taCA not in self.mice_status.regular:
+            self.mice_status.regular[taCA] = []
+        self.mice_status.regular[taCA].append(self.selected_mouse)
         self._cleanup_post_transfer(dialog)
 
     def validate_and_transfer(self, dialog):
@@ -234,11 +229,9 @@ class MouseTransfer(QDialog):
         logging.debug(f"Entered new cage name: {entered_name}")
         
         if not entered_name:
-            logging.warning("New cage input is empty.")
             QMessageBox.warning(dialog, "Invalid Input", "Please enter the cage number.")
             return
         if not entered_name[0].isdigit() or not entered_name[-1].isdigit():
-            logging.warning("New cage input does not start/end with digits.")
             QMessageBox.warning(dialog, "Invalid Input", "Must start and end with digits.")
             return
         
@@ -256,15 +249,12 @@ class MouseTransfer(QDialog):
         logging.debug(f"Digits only from suffix: {digits_only}")
 
         if len(digits_only) == 0:
-            logging.warning("New cage input has no digits sans prefix.")
             QMessageBox.warning(dialog, "Invalid Input", "Must include at least one digit sans prefix.")
             return
         if not digits_only.isdigit():
-            logging.warning("New cage input contains non-digit characters sans prefix.")
             QMessageBox.warning(dialog, "Invalid Input", "Only numbers and '-' are allowed sans prefix.")
             return
         if len(digits_only) > 4:
-            logging.warning("New cage input has more than four digits sans prefix.")
             QMessageBox.warning(dialog, "Invalid Input", "Can only include four digits at most sans prefix.")
             return
         
@@ -272,30 +262,16 @@ class MouseTransfer(QDialog):
         logging.debug(f"Final new cage number: {new_cage_no}")
 
         if new_cage_no in self.mice_status.regular: # Check if key exists in the dict
-            logging.warning(f"Cage '{new_cage_no}' already exists.")
             QMessageBox.warning(dialog, "Cage Exists", f"Cage '{new_cage_no}' already exists. Please enter a different number.")
             self.new_cage_entry.clear()
             return
         if self.current_category == "BACKUP" and (new_cage_no.startswith("8-A-") or new_cage_no.startswith("2-A-")):
-            logging.warning(f"Backup cage '{new_cage_no}' has invalid prefix for backup category.")
             QMessageBox.warning(dialog, "Format Error", f"Backup cages are not supposed to start with '8-A-' or '2-A-'. Please enter a different number.")
             self.new_cage_entry.clear()
             return
         
-        self._remove_from_dict("waiting")
-        logging.debug(f"Removed mouse from waiting room dict (if present).")
-
-        self.selected_mouse["nuCA"] = new_cage_no
-        self.selected_mouse["category"] = self.current_category
-        logging.debug(f"Mouse {self.selected_mouse.get('ID')} nuCA updated to {new_cage_no}, category to {self.current_category}.")
-
-        if new_cage_no not in self.mice_status.regular:
-            self.mice_status.regular[new_cage_no] = []
-            logging.debug(f"Created new regular cage entry for {new_cage_no}.")
-        self.mice_status.regular[new_cage_no].append(self.selected_mouse)
-        logging.debug(f"Mouse {self.selected_mouse.get('ID')} added to regular cage {new_cage_no}.")
-        self._cleanup_post_transfer(dialog)
-
+        self.confirm_transfer(dialog, new_cage_no, "new")
+        
     def _remove_from_dict(self, container_type: str):
         """
         Removes the selected mouse from a specified dictionary (e.g., 'waiting' or 'death').

@@ -38,15 +38,15 @@ class MouseDatabaseGUI(QWidget):
         self.analyze_button.setEnabled(False)
         self.button_layout.addWidget(self.analyze_button)
 
+        self.tree_button = QPushButton("Pedigree (Unimplemented)")
+        self.tree_button.clicked.connect(self.family_tree)
+        self.tree_button.setEnabled(False)
+        self.button_layout.addWidget(self.tree_button)
+
         self.monitor_button = QPushButton("Monitor")
         self.monitor_button.clicked.connect(lambda:self._perform_analysis_action("monitor"))
         self.monitor_button.setEnabled(False)
         self.button_layout.addWidget(self.monitor_button)
-
-        self.tree_button = QPushButton("Pedigree")
-        self.tree_button.clicked.connect(self.family_tree)
-        self.tree_button.setEnabled(False)
-        self.button_layout.addWidget(self.tree_button)
 
         self.save_button = QPushButton("Save")
         self.save_button.clicked.connect(self.save_changes)
