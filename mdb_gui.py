@@ -2,15 +2,13 @@ import os
 import copy
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QWidget, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox
 
-import mdb_edit as medit
 import mdb_io as mio
 import mdb_pedig as mped
 import mdb_plot as mplt
-import mdb_transfer as mtrans
 import mdb_vis as mvis
+import mdb_edit as medit
 
 import traceback
 import logging
@@ -59,7 +57,7 @@ class MouseDatabaseGUI(QWidget):
         self.main_layout.addLayout(self.category_nav_layout)
 
         self.add_entries_button = QPushButton("Add Entries")
-        self.add_entries_button.clicked.connect(self._add_new_mouse_entry)
+        self.add_entries_button.clicked.connect(self.add_new_mouse_entry)
         self.add_entries_button.setEnabled(False)
         self.category_nav_layout.addWidget(self.add_entries_button)
 
@@ -103,13 +101,6 @@ class MouseDatabaseGUI(QWidget):
         self.editor = None
         self.plotter = None
         
-        self.selected_mouse = None
-        self.leaving_timer = None
-        self.current_metadata_window = None
-
-        self.edited_mouse_artist = None
-        self.last_hovered_mouse = None
-
         self.canvas_widget = None
         self.last_action = "analyze"
         self.is_saved = True
@@ -265,147 +256,6 @@ class MouseDatabaseGUI(QWidget):
 
     #########################################################################################################################
 
-    def show_context_menu(self, position):
-        menu = QtWidgets.QMenu(self)
-
-        is_in_waiting_room = self.selected_mouse.get("nuCA") == "Waiting Room"
-        is_on_death_row = self.selected_mouse.get("nuCA") == "Death Row"
-
-        if is_on_death_row:
-            menu.addAction("Release from Death Row", lambda: self._transfer_mouse_action("from_death_row"))
-        else:
-            menu.addAction("Transfer to current cages", lambda: self._transfer_mouse_action("existing_cage"))
-            menu.addAction("Transfer to Death Row", lambda: self._transfer_mouse_action("death_row"))
-            if is_in_waiting_room:
-                menu.addAction("Transfer to a new cage", lambda: self._transfer_mouse_action("new_cage"))
-            else: # in regular cages
-                menu.addAction("Transfer to waiting room", lambda: self._transfer_mouse_action("waiting_room"))
-                menu.addAction("Add to pedigree graph", lambda: mped.add_to_family_tree(self.selected_mouse))
-                menu.addAction("Edit mouse entry", self._edit_selected_mouse_entry)
-
-        menu.exec(self.mapToGlobal(position))
-
-    def _edit_selected_mouse_entry(self): # Wrapper for edit
-        self.editor = medit.MouseEditor(self, self.mouseDB, self.selected_mouse, mode="edit")
-        self.editor.exec()
-
-    def _add_new_mouse_entry(self): # Wrapper for add
-        self.editor = medit.MouseEditor(self, self.mouseDB, None, mode="new")
-        self.editor.exec()
-
-    def _transfer_mouse_action(self, action_type): # Wrapper for transfer
-        logging.debug(f"GUI: Initiating transfer action: {action_type} for mouse ID: {self.selected_mouse.get('ID')}")
-        # Pass self (the GUI instance) as the parent for the transfer dialog
-        transfer_instance = mtrans.MouseTransfer(self, self.mouseDB, self.current_category, self.visualizer.mice_status)
-
-        if action_type == "death_row":
-            transfer_instance.transfer_to_death_row()
-        elif action_type == "existing_cage":
-            transfer_instance.transfer_to_existing_cage()
-        elif action_type == "waiting_room":
-            transfer_instance.transfer_to_waiting_room()
-        elif action_type == "new_cage":
-            transfer_instance.transfer_to_new_cage()
-        elif action_type == "from_death_row":
-            transfer_instance.transfer_from_death_row()
-        else:
-            QMessageBox.critical(self, "Error", f"Unknown transfer action: {action_type}")
-
-    #########################################################################################################################
-
-    def on_hover(self, event, graphics_view):
-        # Map event position to scene coordinates
-        scene_position = graphics_view.mapToScene(event.position().toPoint())
-        item = graphics_view.scene().itemAt(scene_position, graphics_view.transform())
-
-        if item and isinstance(item, QtWidgets.QGraphicsEllipseItem):
-            mouse = item.data(0) # Retrieve stored mouse data
-            if mouse:
-                if self.leaving_timer and self.leaving_timer.isActive():
-                    self.leaving_timer.stop()
-                    self.leaving_timer = None
-
-                if self.last_hovered_mouse and self.last_hovered_mouse.get("ID") == mouse.get("ID"):
-                    return
-
-                if self.current_metadata_window:
-                    self.current_metadata_window.close()
-
-                self.show_metadata_window(mouse, graphics_view.mapToGlobal(event.position().toPoint()))
-                self.selected_mouse = mouse # Set selected mouse on hover
-                self.last_hovered_mouse = mouse
-                return
-        
-        self.schedule_close_metadata_window()
-    
-    def on_click(self, event, graphics_view):
-        if event.button() == Qt.LeftButton:
-            scene_position = graphics_view.mapToScene(event.position().toPoint())
-            item = graphics_view.scene().itemAt(scene_position, graphics_view.transform())
-
-            if item and isinstance(item, QtWidgets.QGraphicsEllipseItem):
-                mouse = item.data(0)
-                if mouse:
-                    self.selected_mouse = mouse
-                    self.show_context_menu(graphics_view.mapToGlobal(event.position().toPoint()))
-                    return
-                
-    #########################################################################################################################
-
-    def show_metadata_window(self, mouse, global_pos):
-        if self.current_metadata_window:
-            self.current_metadata_window.close()
-
-        sex = mouse.get("sex", "N/A")
-        toe = mouse.get("toe", "N/A")
-        age = mouse.get("age", "N/A")
-        genotype = mouse.get("genotype", "N/A")
-        mouseID = mouse.get("ID", "N/A")
-
-        if len(genotype) < 15:
-            genotype = genotype.center(20)
-        
-        metadata_window = QtWidgets.QDialog(self)
-        metadata_window.setWindowTitle("Mouse Metadata")
-        metadata_window.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint) # ToolTip for no taskbar entry, Frameless for no title bar
-        metadata_window.setAttribute(Qt.WA_DeleteOnClose) # Ensure it's deleted when closed
-
-        layout = QVBoxLayout(metadata_window)
-        layout.setContentsMargins(5, 5, 5, 5) # Smaller margins
-        
-        separ_geno = "------GENOTYPE------"
-        separ_ID = "------------I-D------------"
-        message = (f"Sex: {sex}   Toe: {toe}\nAge: {age}d ({int(age) // 7}w{int(age) % 7}d)\n{separ_geno}\n{genotype}\n{separ_ID}\n{mouseID}")
-        label = QtWidgets.QLabel(message)
-        label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet("font-family: Arial; font-size: 9pt; padding: 5px; background-color: lightyellow; border: 1px solid gray;") # Added background and border
-        layout.addWidget(label)
-
-        metadata_window.setLayout(layout)
-        metadata_window.adjustSize()
-        metadata_window.move(global_pos) # Position at mouse cursor
-        metadata_window.show()
-
-        self.current_metadata_window = metadata_window
-
-    def schedule_close_metadata_window(self):
-        if self.current_metadata_window and not self.leaving_timer:
-            self.leaving_timer = QTimer(self) # Parent the timer to self
-            self.leaving_timer.setSingleShot(True)
-            self.leaving_timer.timeout.connect(self.close_metadata_window)
-            self.leaving_timer.start(100)
-
-    def close_metadata_window(self):
-        if self.current_metadata_window:
-            self.current_metadata_window.close()
-            self.current_metadata_window = None
-        self.last_hovered_mouse = None
-        if self.leaving_timer:
-            self.leaving_timer.stop()
-            self.leaving_timer = None
-            
-    #########################################################################################################################
-
     def determine_save_status(self):
         if mio.find_changes_for_changelog(self.processed_data, self.mouseDB, check_only=True):
             self.is_saved = False
@@ -499,6 +349,21 @@ class MouseDatabaseGUI(QWidget):
                     except RuntimeError as e:
                         logging.warning(f"Failed to remove event filter from old canvas: {e}")
                 widget.deleteLater()
+
+    #########################################################################################################################
+
+    def add_new_mouse_entry(self): # Wrapper for add
+        self.editor = medit.MouseEditor(self, self.mouseDB, None, mode="new")
+        self.editor.exec()
+
+    def edit_selected_mouse_entry(self): # Wrapper for edit
+        self.editor = medit.MouseEditor(self, self.mouseDB, self.visualizer.selected_mouse, mode="edit")
+        self.editor.exec()
+
+    def add_selected_mouse_to_family_tree(selected_mouse):
+        if selected_mouse is not None:
+            selected_mouse["parentF"] = "Pending"
+            selected_mouse["parentM"] = "Pending"
 
     #########################################################################################################################
 

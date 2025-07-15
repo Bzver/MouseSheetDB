@@ -281,8 +281,7 @@ def find_changes_for_changelog(old_dict, new_dict, fields_to_compare=COMPARE_COL
                        - list: IDs of added mice.       - list: IDs of changed mice.
                        Returns False if no changes are found and `check_only` is False.
     """
-    if not check_only:
-        added, changed = [], []
+    added, changed = [], []
     for mouse in new_dict:
         if mouse not in old_dict:
             if check_only:

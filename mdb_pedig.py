@@ -40,13 +40,3 @@ class MousePedigree(QDialog):
         self.main_layout.addWidget(canvas)
         canvas.draw()
         self.exec() # Show as modal dialog
-
-def add_to_family_tree(selected_mouse):
-    """
-    Adds a mouse(as in computer) selected mouse(as in rodent) to the family tree structure.
-    Args:
-        selected_mouse: The dictionary of selected_mouse, check mouse_artists in gui.
-    """
-    if selected_mouse is not None:
-        selected_mouse["parentF"] = "Pending"
-        selected_mouse["parentM"] = "Pending"

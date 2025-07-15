@@ -318,6 +318,6 @@ class MouseTransfer(QDialog):
         if dialog:
             dialog.close()
         logging.debug("TRANSFER: _cleanup_post_transfer called. Calling gui.redraw_canvas().")
-        self.gui.redraw_canvas()
-        self.gui.determine_save_status()
+        self.gui.gui.redraw_canvas()
+        self.gui.gui.determine_save_status()
         # self.gui.close_metadata_window() # This method is not implemented in mdb_gui.py yet
