@@ -21,7 +21,7 @@ class MouseGraphicsItem(QGraphicsWidget):
         self.setMaximumSize(size, size)
         self.mouse_data = mouse_data
         self.setFlag(QGraphicsWidget.ItemIsSelectable, True)
-        self.setFlag(QGraphicsWidget.ItemIsMovable, True)
+        self.setFlag(QGraphicsWidget.ItemIsMovable, False)
         self.setData(0, mouse_data) # Store mouse data in the item
         self.setAcceptHoverEvents(True) # Enable hover events
 
@@ -130,6 +130,8 @@ class MouseVisualizer(QWidget):
         self.current_metadata_window = None
         self.edited_mouse_artist = None
         self.last_hovered_mouse = None
+
+        self.menu = None
 
     def display_cage_monitor(self):
         """
@@ -284,24 +286,25 @@ class MouseVisualizer(QWidget):
    #########################################################################################################################
 
     def show_context_menu(self, global_pos):
-        menu = QtWidgets.QMenu(self)
+        self.close_metadata_window() # Close metadata window when context menu appears
+        self.menu = QtWidgets.QMenu(self)
 
         is_in_waiting_room = self.selected_mouse.get("nuCA") == "Waiting Room"
         is_on_death_row = self.selected_mouse.get("nuCA") == "Death Row"
 
         if is_on_death_row:
-            menu.addAction("Release from Death Row", lambda: self._transfer_mouse_action("from_death_row"))
+            self.menu.addAction("Release from Death Row", lambda: self._transfer_mouse_action("from_death_row"))
         else:
-            menu.addAction("Transfer to current cages", lambda: self._transfer_mouse_action("existing_cage"))
-            menu.addAction("Transfer to Death Row", lambda: self._transfer_mouse_action("death_row"))
+            self.menu.addAction("Transfer to current cages", lambda: self._transfer_mouse_action("existing_cage"))
+            self.menu.addAction("Transfer to Death Row", lambda: self._transfer_mouse_action("death_row"))
             if is_in_waiting_room:
-                menu.addAction("Transfer to a new cage", lambda: self._transfer_mouse_action("new_cage"))
+                self.menu.addAction("Transfer to a new cage", lambda: self._transfer_mouse_action("new_cage"))
             else: # in regular cages
-                menu.addAction("Transfer to waiting room", lambda: self._transfer_mouse_action("waiting_room"))
-                menu.addAction("Add to pedigree graph", lambda: self.gui.add_selected_mouse_to_family_tree(self.selected_mouse))
-                menu.addAction("Edit mouse entry", self.gui.edit_selected_mouse_entry)
+                self.menu.addAction("Transfer to waiting room", lambda: self._transfer_mouse_action("waiting_room"))
+                self.menu.addAction("Add to pedigree graph", lambda: self.gui.add_selected_mouse_to_family_tree(self.selected_mouse))
+                self.menu.addAction("Edit mouse entry", self.gui.edit_selected_mouse_entry)
 
-        menu.exec(global_pos)
+        self.menu.exec(global_pos)
 
     def _transfer_mouse_action(self, action_type): # Wrapper for transfer
         logging.debug(f"GUI: Initiating transfer action: {action_type} for mouse ID: {self.selected_mouse.get('ID')}")
@@ -323,6 +326,8 @@ class MouseVisualizer(QWidget):
     #########################################################################################################################
 
     def show_metadata_window(self, mouse, global_pos):
+        if self.menu:  # Don not open if context menu is open
+            return
         if self.current_metadata_window:
             self.current_metadata_window.close()
 

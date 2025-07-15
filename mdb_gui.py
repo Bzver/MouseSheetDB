@@ -360,7 +360,7 @@ class MouseDatabaseGUI(QWidget):
         self.editor = medit.MouseEditor(self, self.mouseDB, self.visualizer.selected_mouse, mode="edit")
         self.editor.exec()
 
-    def add_selected_mouse_to_family_tree(selected_mouse):
+    def add_selected_mouse_to_family_tree(self, selected_mouse):
         if selected_mouse is not None:
             selected_mouse["parentF"] = "Pending"
             selected_mouse["parentM"] = "Pending"
