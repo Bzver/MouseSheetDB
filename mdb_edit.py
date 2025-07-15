@@ -110,6 +110,8 @@ class MouseEditor(QtWidgets.QDialog):
                 female_radio_edit.setChecked(True)
         else:
             male_radio_edit.setChecked(True) # Default for new entry
+        male_radio_edit.toggled.connect(self._save_blocker)
+        female_radio_edit.toggled.connect(self._save_blocker)
 
     def edit_toe_element(self): # TODO: Make it more interesting, like ten mice toe picture for clipping, and a checkbox that deals with duplicates
         """
@@ -198,7 +200,7 @@ class MouseEditor(QtWidgets.QDialog):
         self.edit_toe_entry.setStyleSheet("") # Clear background color
         return True
 
-    def _validate_date_input(self, mode: str):
+    def _validate_date_input(self, date_mode: str):
         """
         Validates the date input from the entry field.
         Args:
@@ -206,22 +208,22 @@ class MouseEditor(QtWidgets.QDialog):
         Returns:
             bool: True if the date is valid, False otherwise.
         """
-        input_date_str = self.edit_birthdate_entry.text() if mode == "birthdate" else self.edit_breeddate_entry.text()
+        input_date_str = self.edit_birthdate_entry.text() if date_mode == "birthdate" else self.edit_breeddate_entry.text()
         if not input_date_str:
             return False
-        logging.debug(f"{mode} Input: '{input_date_str}'")
-        if input_date_str in ["Non Applicable"] and mode == "breeddate": # Skip check for fixed N/A cases
+        logging.debug(f"{date_mode.capitalize()} Input: '{input_date_str}'")
+        if input_date_str in ["Non Applicable"] and date_mode == "breeddate": # Skip check for fixed N/A cases
             return True
         validated_date = mut.convert_to_date(input_date_str)
         if validated_date is None:
-            logging.debug(f"Invalid {mode} detected: '{input_date_str}'")
-            if mode == "birthdate":
+            logging.debug(f"Invalid {date_mode} detected: '{input_date_str}'")
+            if date_mode == "birthdate":
                 self.edit_birthdate_entry.setStyleSheet("background-color: salmon;")
             else:
                 self.edit_breeddate_entry.setStyleSheet("background-color: salmon;")
             return False
-        logging.debug(f"Valid {mode.capitalize}: '{input_date_str}' -> {validated_date}")
-        if mode == "birthdate":
+        logging.debug(f"Valid {date_mode.capitalize()}: '{input_date_str}' -> {validated_date}")
+        if date_mode == "birthdate":
             self.edit_birthdate_entry.setStyleSheet("")
         else:
             self.edit_breeddate_entry.setStyleSheet("") 
