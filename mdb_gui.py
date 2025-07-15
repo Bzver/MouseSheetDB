@@ -21,7 +21,7 @@ class MouseDatabaseGUI(QWidget):
         super().__init__()
         logging.info("MouseDatabaseGUI initialized.")
 
-        self.setWindowTitle("MiceDatabase V3.0")
+        self.setWindowTitle("MiceDatabase V2.7a")
 
         self.main_layout = QVBoxLayout(self)
 
