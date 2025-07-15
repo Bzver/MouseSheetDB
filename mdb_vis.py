@@ -2,102 +2,180 @@ import numpy as np
 import pandas as pd
 from collections import namedtuple
 
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.patches as patches
+from PySide6 import QtWidgets
+from PySide6.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsWidget, QGraphicsGridLayout
+from PySide6.QtCore import Qt, QEvent, QTimer
+from PySide6.QtGui import QColor, QBrush, QPen, QFont
 
 import mdb_utils as mut
 
 import logging
-import warnings
 
-class MouseVisualizer:
-    def __init__(self, master, gui, mouseDB, current_category, canvas_widget):
-        self.master = master
-        self.gui = gui
+class MouseGraphicsItem(QGraphicsWidget):
+    """A custom QGraphicsWidget to represent a single mouse, including its dot and genotype text."""
+    def __init__(self, mouse_data, size=30, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(size, size)
+        self.setPreferredSize(size, size)
+        self.setMaximumSize(size, size)
+        self.mouse_data = mouse_data
+        self.setFlag(QGraphicsWidget.ItemIsSelectable, True)
+        self.setFlag(QGraphicsWidget.ItemIsMovable, False)
+        self.setData(0, mouse_data) # Store mouse data in the item
+        self.setAcceptHoverEvents(True) # Enable hover events
+
+        self.sex = self.mouse_data.get("sex", "N/A")
+        self.age = self.mouse_data.get("age", None)
+        self.genotype = self.mouse_data.get("genotype", "N/A")
+
+        self.dot_color = QColor(mut.mice_dot_color_picker(self.sex, self.age))
+        self.geno_text, geno_color_str = mut.genotype_abbreviation_color_picker(self.genotype)
+        self.geno_color = QColor(geno_color_str)
+
+    def paint(self, painter, option, widget):
+        # Draw the ellipse
+        painter.setBrush(QBrush(self.dot_color))
+        painter.setPen(QPen(Qt.NoPen))
+        painter.drawEllipse(self.rect())
+
+        # Draw the genotype text
+        painter.setFont(QFont("Arial", 14))
+        painter.setPen(QPen(self.geno_color))
+        text_rect = painter.fontMetrics().boundingRect(self.geno_text)
+        painter.drawText(
+            self.rect().center().x() - text_rect.width() / 2,
+            self.rect().center().y() + text_rect.height() / 2 - 3,
+            self.geno_text
+        )
+
+class CageGraphicsItem(QGraphicsWidget):
+    """A custom QGraphicsWidget to represent a single cage, containing its mice."""
+    def __init__(self, cage_no, mice_data, parent=None):
+        super().__init__(parent)
+        self.cage_no = cage_no
+        self.mice_data = mice_data
+        self.cage_color = None
+        self.setFlag(QGraphicsWidget.ItemIsMovable, False) # Cages should not be movable
+
+        # Default size for regular cages
+        self.min_width = 180
+        self.min_height = 150
+        self.pref_width = 180
+        self.pref_height = 150
+        self.max_width = 180
+        self.max_height = 150
+
+        # Adjust size for special cages
+        if self.cage_no in ["Waiting Room", "Death Row"]:
+            self.min_width = 250
+            self.min_height = 200
+            self.pref_width = 250
+            self.pref_height = 200
+            self.max_width = 250
+            self.max_height = 200
+
+        self.setMinimumSize(self.min_width, self.min_height)
+        self.setPreferredSize(self.pref_width, self.pref_height)
+        self.setMaximumSize(self.max_width, self.max_height)
+
+        self.setContentsMargins(10, 40, 10, 10) # Left, Top, Right, Bottom margins for internal layout
+
+        self.cage_layout = QGraphicsGridLayout()
+        self.setLayout(self.cage_layout)
+
+        self._plot_mice_in_cage()
+
+    def paint(self, painter, option, widget):
+        # Draw the cage rectangle
+        cage_color = self.cage_color if self.cage_color is not None else QColor(Qt.black)
+        for mouse in self.mice_data:
+            breed_days = pd.to_numeric(mouse.get("breedDays"), errors="coerce")
+            if pd.notna(breed_days) and breed_days > 90:
+                cage_color = QColor(Qt.red)
+                break
+        
+        painter.setPen(QPen(cage_color, 2))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(self.rect())
+
+        # Draw cage number text
+        painter.setFont(QFont("Arial", 10))
+        painter.setPen(QPen(Qt.black))
+        text_rect = painter.fontMetrics().boundingRect(f"Cage: {self.cage_no}")
+        painter.drawText(
+            self.rect().center().x() - text_rect.width() / 2,
+            self.rect().top() + 15, # Position above the rectangle
+            f"Cage: {self.cage_no}"
+        )
+
+    def _plot_mice_in_cage(self):
+        num_mice = len(self.mice_data)
+        if num_mice == 0:
+            return
+
+        # Calculate rows and columns for a more even distribution
+        # Aim for a layout that is as square as possible
+        if num_mice > 0:
+            cols = int(np.ceil(np.sqrt(num_mice)))
+            rows = int(np.ceil(num_mice / cols))
+        else:
+            cols = 1
+            rows = 1
+
+        for i, mouse in enumerate(self.mice_data):
+            row = i // cols
+            col = i % cols
+            mouse_item = MouseGraphicsItem(mouse, size=30)
+            self.cage_layout.addItem(mouse_item, row, col)
+            self.cage_layout.setAlignment(mouse_item, Qt.AlignCenter) # Center items within their cells
+
+class MouseVisualizer(QWidget):
+    def __init__(self, parent, mouseDB, current_category, canvas_widget):
+        super().__init__(parent)
+        self.gui = parent
         self.mouseDB = mouseDB
         self.current_category = current_category
         self.canvas_widget = canvas_widget
 
+        self.main_layout = QtWidgets.QVBoxLayout(self)
+        self.setLayout(self.main_layout)
+
+        self.graphics_view = None # For QGraphicsView
+        self.graphics_scene = None # For QGraphicsScene
+
         MiceContainers = namedtuple("MiceContainers", ["regular", "waiting", "death"])
-        self.mice_status = MiceContainers(
-            regular={}, 
-            waiting={}, 
-            death={}
-        )
-
+        self.mice_status = MiceContainers(regular={}, waiting={}, death={})
         self.mouse_artists = []
+        self.selected_mouse = None
 
-        self.ax = None
-        self.mpl_canvas = None
+        self.leaving_timer = None
+        self.current_metadata_window = None
+        self.edited_mouse_artist = None
+        self.last_hovered_mouse = None
 
-        if self.canvas_widget:
-            self.canvas_widget.destroy()
-            plt.close("all")
-
-    def display_genotype_bar_plot(self):
-        """Plot mouse count by genotype data."""
-        logging.debug(f"DEBUG: display_genotype_bar_plot called. current_category: {self.current_category}")
-        try:
-            genotypes, male_counts, female_counts, senile_counts = self.mice_count_for_genotype()
-            logging.debug(f"DEBUG: Genotypes: {genotypes}, Male Counts: {male_counts}, Female Counts: {female_counts}, Senile Counts: {senile_counts}")
-        except Exception as e:
-            logging.error(f"Error processing mouse data for genotype bar plot: {e}", exc_info=True)
-            return False
-
-        if not genotypes:
-            logging.debug("DEBUG: No genotypes to plot for bar plot.")
-            return None # Return None if no data to plot
-
-        fig, axes = plt.subplots(1, 1, figsize=(8, 6))
-        ax = axes
-        ax.bar(genotypes, male_counts, label="♂", color="lightblue")
-        ax.bar(genotypes, female_counts, bottom=male_counts, label="♀", color="lightpink")
-        ax.bar(genotypes, senile_counts, bottom=[male_counts[j] + female_counts[j] for j in range(len(genotypes))], label="Senile", color="grey")
-
-        for j, genotype in enumerate(genotypes):
-            male_y = male_counts[j] / 2
-            female_y = male_counts[j] + (female_counts[j] / 2)
-            senile_y = male_counts[j] + female_counts[j] + (senile_counts[j] / 2)
-
-            if male_counts[j] > 0:
-                ax.text(genotype, male_y, str(male_counts[j]), ha="center", va="center", color="black")
-            if female_counts[j] > 0:
-                ax.text(genotype, female_y, str(female_counts[j]), ha="center", va="center", color="black")
-            if senile_counts[j] > 0:
-                ax.text(genotype, senile_y, str(senile_counts[j]), ha="center", va="center", color="black")
-
-        ax.set_title(f"Genotype Counts in Category: {self.current_category}")
-        ax.set_xlabel("Genotype")
-        ax.set_ylabel("Number of Mice")
-        ax.legend()
-        labels = [label.get_text().replace("-P", "\nP") for label in ax.get_xticklabels()]
-        ax.set_xticks(ax.get_xticks())
-        ax.set_xticklabels(labels)
-
-        plt.tight_layout()
-        canvas = FigureCanvasTkAgg(fig, master=self.master)
-        canvas.draw()
-        self.canvas_widget = canvas.get_tk_widget()
-        self.canvas_widget.pack()
-        return self.canvas_widget
+        self.menu = None
 
     def display_cage_monitor(self):
         """
-        Displays the cage monitor visualization, using the "nuCA" key for current cage location.
+        Displays the cage monitor visualization using QGraphicsView.
         Mice with "nuCA" set to "Waiting Room" or "Death Row" are plotted in special areas.
         """
         logging.debug(f"VIS: display_cage_monitor called. current_category: {self.current_category}")
-        if self.canvas_widget:
-            self.canvas_widget.destroy()
-            plt.close("all")
 
-        fig, ax = plt.subplots(figsize=(10, 8))
-        ax.set_xlim(0, 10)
-        ax.set_ylim(0, 8)
-        ax.set_aspect("equal")
-        ax.set_title(f"Cage Monitor - Category: {self.current_category}")
-        ax.axis("off")
+        # Clear existing graphics view if any
+        if self.graphics_view:
+            # Remove the event filter before deleting the old graphics view
+            self.graphics_view.viewport().removeEventFilter(self)
+            self.graphics_view.deleteLater()
+            self.graphics_view = None
+            self.graphics_scene = None
+        
+        self.graphics_scene = QGraphicsScene(self)
+        self.graphics_view = QGraphicsView(self.graphics_scene)
+        self.main_layout.addWidget(self.graphics_view)
+
+        # Set scene rectangle to define the drawing area (similar to xlim/ylim)
+        self.graphics_scene.setSceneRect(0, 0, 1000, 800) # Adjust scene size as needed
 
         self.mice_count_for_monitor()
         logging.debug(f"DEBUG: Mice displayed - Regular: {len(self.mice_status.regular)}, Waiting: {len(self.mice_status.waiting)}, Death: {len(self.mice_status.death)}")
@@ -106,151 +184,74 @@ class MouseVisualizer:
             logging.debug("DEBUG: No mice data to plot for cage monitor.")
             return None # Return None if no data to plot
 
-        cage_positions = self.calculate_cage_positions(len(self.mice_status.regular))
-        self.mouse_artists.clear()
+        self.mouse_artists.clear() # Clear previous mouse artists
 
-        self.draw_cages(ax, self.mice_status.regular, cage_positions)
-        self.plot_mice(ax, self.mice_status.regular, cage_positions) 
-        self.draw_special_cages(ax)
-        self.ax = ax
+        # Use QGraphicsGridLayout for regular cages
+        self.cage_grid_layout = QGraphicsGridLayout()
+        self.draw_cages_qt(self.mice_status.regular, self.cage_grid_layout)
 
-        fig.canvas.mpl_connect("motion_notify_event", lambda event: self.gui.on_hover(event))
-        fig.canvas.mpl_connect("button_press_event", lambda event: self.gui.on_click(event))
+        # Add the grid layout to a QGraphicsWidget to be able to add it to the scene
+        grid_widget = QGraphicsWidget()
+        grid_widget.setLayout(self.cage_grid_layout)
+        self.graphics_scene.addItem(grid_widget)
 
-        plt.tight_layout()
-        canvas = FigureCanvasTkAgg(fig, master=self.master)
-        self.mpl_canvas = canvas
-        self.mpl_canvas.draw()
-        self.canvas_widget = self.mpl_canvas.get_tk_widget()
-        self.canvas_widget.pack()
+        # Position the grid_widget
+        grid_widget.setPos(50, 20) # Move regular cages higher with a top margin
+
+        self.draw_special_cages_qt()
+
+        # Connect mouse events for interaction
+        self.graphics_view.setMouseTracking(True) # Enable mouse tracking for hover events
+        self.graphics_view.viewport().installEventFilter(self) # Install event filter to capture mouse events
+
+        self.canvas_widget = self.graphics_view # Store the QGraphicsView object
         return self.canvas_widget
     
+    def eventFilter(self, watched, event):
+        if watched == self.graphics_view.viewport():
+            if event.type() == QEvent.MouseMove:
+                self.on_hover(event, self.graphics_view)
+            elif event.type() == QEvent.MouseButtonPress:
+                self.on_click(event, self.graphics_view)
+        return super().eventFilter(watched, event)
+
     #########################################################################################################################
 
-    def draw_cages(self, ax, cage_data, cage_positions):
+    def draw_cages_qt(self, cage_data, layout):
+        cols = 3 # Number of columns for the grid layout
         for cage_index, (cage_no, mice) in enumerate(cage_data.items()):
-            x, y = cage_positions[cage_index]
+            row = cage_index // cols
+            col = cage_index % cols
+            cage_item = CageGraphicsItem(cage_no, mice)
+            layout.addItem(cage_item, row, col)
+            self.mouse_artists.extend([(mouse_item, mouse_item.mouse_data) for mouse_item in cage_item.findChildren(MouseGraphicsItem)])
 
-            cage_color = "black"
-            for mouse in mice:
-                breed_days = pd.to_numeric(mouse.get("breedDays"), errors="coerce")
-                if pd.notna(breed_days) and breed_days > 90:
-                    cage_color = "red"
-                    breakpoint
-                
-            cage_rect = patches.Rectangle((x - 0.8, y - 0.6), 1.6, 1.2, linewidth=1, edgecolor=cage_color, facecolor="none")
-            ax.add_patch(cage_rect)
-            cage_text = ax.text(x, y + 0.4, f"Cage: {cage_no}", ha="center", va="bottom", picker=True)
-            cage_text.cage_no = cage_no
-            cage_text.set_picker(True)
+    def draw_special_cages_qt(self):
+        scene_width = self.graphics_scene.width()
+        top_margin = 20
+        right_margin = 50
+        vertical_spacing = 20
 
-    def draw_special_cages(self, ax):
-        wr_x, wr_y, wr_width, wr_height = 8.5, 6.0, 2.5, 1.5
-        wr_rect = patches.Rectangle((wr_x - wr_width/2, wr_y - wr_height/2), wr_width, wr_height, linewidth=1, edgecolor="blue", facecolor="none")
-        ax.add_patch(wr_rect)
-        ax.text(wr_x, wr_y + wr_height/2 + 0.2, "Waiting Room", ha="center", va="bottom", color="blue", fontsize=12)
-        self.plot_mice_in_area(ax, list(self.mice_status.waiting.values()), wr_x, wr_y, wr_width, wr_height)
+        # Death Row (plot higher and to the right)
+        death_cage_item = CageGraphicsItem("Death Row", list(self.mice_status.death.values()))
+        death_width = death_cage_item.preferredSize().width()
+        death_height = death_cage_item.preferredSize().height()
+        
+        x_death = scene_width - right_margin - death_width
+        y_death = top_margin
+        death_cage_item.setPos(x_death, y_death)
+        death_cage_item.cage_color = QColor(Qt.darkMagenta)
+        self.graphics_scene.addItem(death_cage_item)
 
-        dr_x, dr_y, dr_width, dr_height = 8.5, 3.0, 2.5, 1.5
-        dr_rect = patches.Rectangle((dr_x - dr_width/2, dr_y - dr_height/2), dr_width, dr_height, linewidth=1, edgecolor="purple", facecolor="none")
-        ax.add_patch(dr_rect)
-        ax.text(dr_x, dr_y + dr_height/2 + 0.2, "Death Row", ha="center", va="bottom", color="purple", fontsize=12)
-        self.plot_mice_in_area(ax, list(self.mice_status.death.values()), dr_x, dr_y, dr_width, dr_height)
-
-    def calculate_cage_positions(self, num_cages):
-        positions = []
-        cols = 3
-        rows = (num_cages + cols - 1) // cols
-
-        x_min_reg = 0.5 # Left padding
-        x_max_reg = 7.0 # Right boundary for regular cages
-        y_min_reg = 0.5 # Bottom padding
-        y_max_reg = 7.5 # Top boundary for regular cages
-
-        col_spacing = (x_max_reg - x_min_reg) / (cols + 1)
-        row_spacing = (y_max_reg - y_min_reg) / (rows + 1)
-
-        for i in range(num_cages):
-            row = i // cols
-            col = i % cols
-            x = x_min_reg + (col + 1) * col_spacing
-            y = y_max_reg - (row + 1) * row_spacing
-            positions.append((x, y))
-        return positions
-
-    def plot_mice(self, ax, cage_data, cage_positions):
-        for cage_index, (cage_no, mice) in enumerate(cage_data.items()):
-            x, y = cage_positions[cage_index]
-            self.plot_mice_in_area(ax, mice, x, y, 1.6, 1.2)
-
-    def plot_mice_in_area(self, ax, mice, center_x, center_y, area_width, area_height):
-        num_mice = len(mice)
-        if num_mice == 0:
-            return
-
-        max_cols = int(np.sqrt(num_mice)) + 1
-        col_spacing = area_width / (max_cols + 1)
-        row_spacing = area_height / ((num_mice + max_cols - 1) // max_cols + 1)
-
-        for i, mouse in enumerate(mice):
-            col = i % max_cols
-            row = i // max_cols
-            mx = center_x - (area_width / 2) + (col + 1) * col_spacing
-            my = center_y + (area_height / 2) - (row + 1) * row_spacing
-            sex = mouse.get("sex", "N/A")
-            age = mouse.get("age", None)
-            genotype = mouse.get("genotype", "N/A")
-
-            dot_color = mut.mice_dot_color_picker(sex, age)
-            geno_text, geno_color = mut.genotype_abbreviation_color_picker(genotype)
-
-            mouse_dot, = ax.plot(mx, my, marker="o", markersize=15, color=dot_color, picker=5)
-            ax.text(mx, my, geno_text, ha="center", va="center", color=geno_color, fontsize=14)
-            self.mouse_artists.append((mouse_dot, mouse))
-
-    ##########################################################################################################################
-
-    def mice_count_for_genotype(self):
-        genotypes = []
-        male_counts = []
-        female_counts = []
-        senile_counts = []
-
-        logging.debug(f"DEBUG: mice_count_for_genotype - mouseDB size: {len(self.mouseDB) if self.mouseDB else 0}")
-        logging.debug(f"DEBUG: mice_count_for_genotype - current_category: {self.current_category}")
-
-        if not self.mouseDB:
-            logging.debug("DEBUG: mouseDB is empty in mice_count_for_genotype.")
-            return [], [], [], []
-
-        logging.debug(f"DEBUG: first five entries in self.mouseDB: {list(self.mouseDB.items())[:5]}")
-        logging.debug(f"DEBUG: current_category: {self.current_category}")
-
-        for mouse_info in self.mouseDB.values():
-            # Only consider mice in the current category for genotype counts
-            if mouse_info.get("category") == self.current_category and mouse_info.get("genotype") not in genotypes:
-                genotypes.append(mouse_info.get("genotype"))
-            
-        for genotype in genotypes:
-            males = sum(1 for mouse_info in self.mouseDB.values()
-                            if mouse_info.get("genotype") == genotype
-                            and mouse_info.get("category") == self.current_category
-                            and mouse_info.get("sex") == "♂"
-                            and mouse_info.get("age", 0) <= 300)
-            females = sum(1 for mouse_info in self.mouseDB.values()
-                            if mouse_info.get("genotype") == genotype
-                            and mouse_info.get("category") == self.current_category
-                            and mouse_info.get("sex") == "♀"
-                            and mouse_info.get("age", 0) <= 300)
-            seniles = sum(1 for mouse_info in self.mouseDB.values()
-                            if mouse_info.get("genotype") == genotype
-                            and mouse_info.get("category") == self.current_category
-                            and mouse_info.get("age", 0) > 300)
-            male_counts.append(males)
-            female_counts.append(females)
-            senile_counts.append(seniles)
-            
-        return genotypes, male_counts, female_counts, senile_counts
+        # Waiting Room (plot below Death Row)
+        waiting_cage_item = CageGraphicsItem("Waiting Room", list(self.mice_status.waiting.values()))
+        waiting_width = waiting_cage_item.preferredSize().width()
+        
+        x_waiting = scene_width - right_margin - waiting_width
+        y_waiting = y_death + death_height + vertical_spacing
+        waiting_cage_item.setPos(x_waiting, y_waiting)
+        waiting_cage_item.cage_color = QColor(Qt.blue) # Set border color
+        self.graphics_scene.addItem(waiting_cage_item)
 
     def mice_count_for_monitor(self):
         # Clear data from previous category
@@ -280,6 +281,117 @@ class MouseVisualizer:
                 self.mice_status.death[ID] = mouse_info
         logging.debug(f"VIS: mice_count_for_monitor completed. Regular: {len(self.mice_status.regular)}, Waiting: {len(self.mice_status.waiting)}, Death: {len(self.mice_status.death)}")
 
-#########################################################################################################################
+    #########################################################################################################################
 
-warnings.simplefilter(action="ignore",category=FutureWarning)
+    def on_hover(self, event, graphics_view): # Map event position to scene coordinates
+        scene_position = graphics_view.mapToScene(event.position().toPoint())
+        item = graphics_view.scene().itemAt(scene_position, graphics_view.transform())
+
+        if item and isinstance(item, QGraphicsWidget):
+            mouse = item.data(0) # Retrieve stored mouse data
+            if mouse:
+                if self.leaving_timer and self.leaving_timer.isActive():
+                    self.leaving_timer.stop()
+                    self.leaving_timer = None
+
+                if self.last_hovered_mouse and self.last_hovered_mouse == mouse:
+                    return
+
+                if self.current_metadata_window:
+                    self.current_metadata_window.close()
+
+                self.show_metadata_window(mouse, graphics_view.mapToGlobal(event.position().toPoint()))
+                self.selected_mouse = mouse # Set selected mouse on hover
+                self.last_hovered_mouse = mouse
+                return
+        
+        self.schedule_close_metadata_window()
+    
+    def on_click(self, event, graphics_view):
+        if event.button() == Qt.LeftButton:
+            scene_position = graphics_view.mapToScene(event.position().toPoint())
+            item = graphics_view.scene().itemAt(scene_position, graphics_view.transform())
+
+            if item and isinstance(item, QGraphicsWidget):
+                mouse = item.data(0)
+                if mouse:
+                    self.selected_mouse = mouse
+                    self.show_context_menu(graphics_view.mapToGlobal(event.position().toPoint()))
+                    return
+                
+   #########################################################################################################################
+
+    def show_context_menu(self, global_pos):
+        self.close_metadata_window() # Close metadata window when context menu appears
+        self.menu = QtWidgets.QMenu(self)
+
+        is_in_waiting_room = self.selected_mouse.get("nuCA") == "Waiting Room"
+        is_on_death_row = self.selected_mouse.get("nuCA") == "Death Row"
+
+        if is_on_death_row:
+            self.menu.addAction("Release from Death Row", lambda: self.gui.transfer_mouse_action("from_death_row"))
+        else:
+            self.menu.addAction("Transfer to current cages", lambda: self.gui.transfer_mouse_action("existing_cage"))
+            self.menu.addAction("Transfer to Death Row", lambda: self.gui.transfer_mouse_action("death_row"))
+            if is_in_waiting_room:
+                self.menu.addAction("Transfer to a new cage", lambda: self.gui.transfer_mouse_action("new_cage"))
+            else: # in regular cages
+                self.menu.addAction("Transfer to waiting room", lambda: self.gui.transfer_mouse_action("waiting_room"))
+                self.menu.addAction("Add to pedigree graph", self.gui.add_selected_mouse_to_family_tree)
+                self.menu.addAction("Edit mouse entry", self.gui.transfer_mouse_action)
+
+        self.menu.exec(global_pos)
+
+    def show_metadata_window(self, mouse, global_pos):
+        if self.menu:  # Don not open if context menu is open
+            return
+        if self.current_metadata_window:
+            self.current_metadata_window.close()
+
+        sex = mouse.get("sex", "N/A")
+        toe = mouse.get("toe", "N/A")
+        age = mouse.get("age", "N/A")
+        genotype = mouse.get("genotype", "N/A")
+        mouseID = mouse.get("ID", "N/A")
+
+        if len(genotype) < 15:
+            genotype = genotype.center(20)
+        
+        metadata_window = QtWidgets.QDialog(self)
+        metadata_window.setWindowTitle("Mouse Metadata")
+        metadata_window.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint) # ToolTip for no taskbar entry, Frameless for no title bar
+        metadata_window.setAttribute(Qt.WA_DeleteOnClose) # Ensure it's deleted when closed
+
+        layout = QtWidgets.QVBoxLayout(metadata_window)
+        layout.setContentsMargins(5, 5, 5, 5) # Smaller margins
+        
+        separ_geno = "------GENOTYPE------"
+        separ_ID = "------------I-D------------"
+        message = (f"Sex: {sex}   Toe: {toe}\nAge: {age}d ({int(age) // 7}w{int(age) % 7}d)\n{separ_geno}\n{genotype}\n{separ_ID}\n{mouseID}")
+        label = QtWidgets.QLabel(message)
+        label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet("font-family: Arial; font-size: 9pt; padding: 5px; background-color: lightyellow; border: 1px solid gray;") # Added background and border
+        layout.addWidget(label)
+
+        metadata_window.setLayout(layout)
+        metadata_window.adjustSize()
+        metadata_window.move(global_pos) # Position at mouse cursor
+        metadata_window.show()
+
+        self.current_metadata_window = metadata_window
+
+    def schedule_close_metadata_window(self):
+        if self.current_metadata_window and not self.leaving_timer:
+            self.leaving_timer = QTimer(self) # Parent the timer to self
+            self.leaving_timer.setSingleShot(True)
+            self.leaving_timer.timeout.connect(self.close_metadata_window)
+            self.leaving_timer.start(100)
+
+    def close_metadata_window(self):
+        if self.current_metadata_window:
+            self.current_metadata_window.close()
+            self.current_metadata_window = None
+        self.last_hovered_mouse = None
+        if self.leaving_timer:
+            self.leaving_timer.stop()
+            self.leaving_timer = None
