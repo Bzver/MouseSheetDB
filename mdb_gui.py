@@ -8,8 +8,8 @@ from PySide6.QtWidgets import QWidget, QPushButton, QLineEdit, QVBoxLayout, QHBo
 import mdb_edit as medit
 import mdb_io as mio
 import mdb_pedig as mped
+import mdb_plot as mplt
 import mdb_transfer as mtrans
-import mdb_utils as mut
 import mdb_vis as mvis
 
 import traceback
@@ -35,12 +35,12 @@ class MouseDatabaseGUI(QWidget):
         self.button_layout.addWidget(self.browse_button)
 
         self.analyze_button = QPushButton("Analyze")
-        self.analyze_button.clicked.connect(self.analyze_data)
+        self.analyze_button.clicked.connect(lambda:self._perform_analysis_action("analyze"))
         self.analyze_button.setEnabled(False)
         self.button_layout.addWidget(self.analyze_button)
 
         self.monitor_button = QPushButton("Monitor")
-        self.monitor_button.clicked.connect(self.monitor_cages)
+        self.monitor_button.clicked.connect(lambda:self._perform_analysis_action("monitor"))
         self.monitor_button.setEnabled(False)
         self.button_layout.addWidget(self.monitor_button)
 
@@ -83,6 +83,10 @@ class MouseDatabaseGUI(QWidget):
         self.load_changelog_button.setEnabled(False)
         self.category_nav_layout.addWidget(self.load_changelog_button)
 
+        # Container for dynamically added canvas widgets
+        self.canvas_container_layout = QVBoxLayout()
+        self.main_layout.addLayout(self.canvas_container_layout)
+
         self.file_path = None
         self.backup_file = None
 
@@ -97,6 +101,7 @@ class MouseDatabaseGUI(QWidget):
 
         self.visualizer = None
         self.editor = None
+        self.plotter = None
         
         self.selected_mouse = None
         self.leaving_timer = None
@@ -142,7 +147,7 @@ class MouseDatabaseGUI(QWidget):
             self.processed_data = mio.data_preprocess(self.file_path, "MDb")
             self.mouseDB = copy.deepcopy(self.processed_data) # Original data serving as change tracker
             self.current_category = self.category_names[0]
-            self._update_category_ui()
+            self._update_control_ui()
             if self.processed_data is None:
                 raise Exception("Failed to preprocess Excel data")
             logging.debug("Excel file loaded and preprocessed successfully.")
@@ -219,10 +224,10 @@ class MouseDatabaseGUI(QWidget):
         logging.debug("analyze_data called.")
         try:
             # Pass the GUI instance (self) as the parent for the visualizer
-            self.visualizer = mvis.MouseVisualizer(self, self.mouseDB, self.current_category, self.canvas_widget)
-            self.canvas_widget = self.visualizer.display_genotype_bar_plot()
+            self.plotter = mplt.MousePlotter(self, self.mouseDB, self.current_category, self.canvas_widget)
+            self.canvas_widget = self.plotter.display_genotype_bar_plot()
             if self.canvas_widget:
-                self.main_layout.addWidget(self.canvas_widget) # Add canvas to the main layout
+                self.canvas_container_layout.addWidget(self.canvas_widget) # Add canvas to the canvas_container
                 logging.debug("Genotype bar plot displayed successfully.")
             else:
                 logging.warning("Genotype bar plot was not displayed (canvas_widget is None).")
@@ -238,7 +243,7 @@ class MouseDatabaseGUI(QWidget):
             self.visualizer = mvis.MouseVisualizer(self, self.mouseDB, self.current_category, self.canvas_widget)
             self.canvas_widget = self.visualizer.display_cage_monitor()
             if self.canvas_widget:
-                self.main_layout.addWidget(self.canvas_widget) # Add canvas to the main layout
+                self.canvas_container_layout.addWidget(self.canvas_widget)
                 logging.debug("Cage monitor displayed successfully.")
             else:
                 logging.warning("Cage monitor was not displayed (canvas_widget is None).")
@@ -429,33 +434,35 @@ class MouseDatabaseGUI(QWidget):
         self.tree_button.setEnabled(False)
         self.save_button.setEnabled(False)
         self.add_entries_button.setEnabled(False)
-        if self.canvas_widget:
-            self.canvas_widget.deleteLater() # Use deleteLater for proper Qt object deletion
-            self.canvas_widget = None
+        self.canvas_widget = None
+        self.visualizer = None # Clear visualizer reference
+        self.plotter = None # Clear plotter reference
 
-    def _update_category_ui(self):
-        """Update UI elements for current category"""
+    def _update_control_ui(self):
+        """Update UI elements for current category and mode"""
         self.category_textbox.setReadOnly(False)
         self.category_textbox.setText(self.current_category.center(40))
         self.category_textbox.setReadOnly(True)
         self.prev_category_button.setEnabled(True)
         self.next_category_button.setEnabled(True)
-        self.analyze_button.setEnabled(True)
         self.monitor_button.setEnabled(True)
+        self.analyze_button.setEnabled(True)
+        if self.plotter: # Disable the respective button when already plotting or monitoring
+            self.analyze_button.setEnabled(False)
+        elif self.visualizer:
+            self.monitor_button.setEnabled(False)
         self.tree_button.setEnabled(True)
 
     def _prev_category(self):
         """Navigate to previous category"""
         self.category_index = (self.category_index - 1) % len(self.category_names)
         self.current_category = self.category_names[self.category_index]
-        self._update_category_ui()
         self._perform_analysis_action()
 
     def _next_category(self):
         """Navigate to next category"""
         self.category_index = (self.category_index + 1) % len(self.category_names)
         self.current_category = self.category_names[self.category_index]
-        self._update_category_ui()
         self._perform_analysis_action()
 
     def _on_category_selection_changed(self, event=None):
@@ -464,25 +471,34 @@ class MouseDatabaseGUI(QWidget):
             self.analyze_button.setEnabled(False)
             self.monitor_button.setEnabled(False)
             return
-
-        self.analyze_button.setEnabled(True)
-        self.monitor_button.setEnabled(True)
-        if self.canvas_widget:
-            self.canvas_widget.deleteLater()
-            self.canvas_widget = None
-
-        # Trigger analysis based on last action
-        self._perform_analysis_action()
-
-    def _perform_analysis_action(self):
-        if self.canvas_widget:
-            self.canvas_widget.deleteLater()
-            self.canvas_widget = None
-
-        if self.last_action == "monitor":
+        self._ensure_canvas_deletion()
+        self.canvas_widget = None # Ensure canvas_widget is None before creating a new one
+        self.visualizer = None # Clear visualizer reference
+        self.plotter = None # Clear plotter reference
+        self._perform_analysis_action() # Trigger analysis based on last action
+        
+    def _perform_analysis_action(self, verbose=None): # Clear the canvas container layout before adding new content
+        self._ensure_canvas_deletion()
+        self.canvas_widget = None
+        self.visualizer = None
+        self.plotter = None
+        action = verbose if verbose is not None else self.last_action
+        if action == "monitor":
             self.monitor_cages()
         else:
             self.analyze_data()
+        self._update_control_ui()
+
+    def _ensure_canvas_deletion(self):
+        while self.canvas_container_layout.count():
+            widget = self.canvas_container_layout.takeAt(0).widget()
+            if widget: # Before deleting the widget, remove the event filter if it's a QGraphicsView
+                if isinstance(widget, QtWidgets.QGraphicsView) and self.visualizer:
+                    try:
+                        widget.viewport().removeEventFilter(self.visualizer)
+                    except RuntimeError as e:
+                        logging.warning(f"Failed to remove event filter from old canvas: {e}")
+                widget.deleteLater()
 
     #########################################################################################################################
 

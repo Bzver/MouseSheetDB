@@ -287,11 +287,13 @@ def find_changes_for_changelog(old_dict, new_dict, fields_to_compare=COMPARE_COL
         if mouse not in old_dict:
             if check_only:
                 return True
-            added.append(mouse)
-        elif any(mouse.get(f) != old_dict[mouse].get(f) for f in fields_to_compare):
+            else:
+                added.append(mouse)
+        elif any(new_dict[mouse].get(f) != old_dict[mouse].get(f) for f in fields_to_compare):
             if check_only:
                 return True
-            changed.append(mouse)
+            else:
+                changed.append(mouse)
 
     if not added and not changed:
         logging.info("No changes found.")
