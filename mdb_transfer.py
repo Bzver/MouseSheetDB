@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QDialog, QLabel, QLineEdit, QPushButton, QComboBox, QVBoxLayout, QHBoxLayout, QMessageBox
-from PySide6.QtCore import Qt
+from PySide6 import QtWidgets
+from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QMessageBox
 
 import mdb_utils as mut
 
@@ -38,7 +38,7 @@ class MouseTransfer(QDialog):
             dialog.setModal(True) # Make it modal
             dialog.setGeometry(100, 300, 300, 150) # x, y, width, height (adjust as needed)
 
-            layout = QVBoxLayout(dialog)
+            layout = QtWidgets.QVBoxLayout(dialog)
             layout.addWidget(QLabel("Select a cage:"))
 
             current_cage = self.selected_mouse.get("nuCA")
@@ -50,7 +50,7 @@ class MouseTransfer(QDialog):
                 dialog.close()
                 return
 
-            cage_dropdown = QComboBox()
+            cage_dropdown = QtWidgets.QComboBox()
             cage_dropdown.addItems(existing_cages)
             layout.addWidget(cage_dropdown)
 
@@ -105,7 +105,7 @@ class MouseTransfer(QDialog):
             dialog.setModal(True)
             dialog.setGeometry(100, 300, 300, 150)
 
-            layout = QVBoxLayout(dialog)
+            layout = QtWidgets.QVBoxLayout(dialog)
             layout.addWidget(QLabel("Enter the new cage number:"))
 
             prefix = ""
@@ -116,9 +116,9 @@ class MouseTransfer(QDialog):
             logging.debug(f"New cage prefix: {prefix}")
 
             prefix_label = QLabel(prefix)
-            self.new_cage_entry = QLineEdit()
+            self.new_cage_entry = QtWidgets.QLineEdit()
             
-            input_layout = QHBoxLayout()
+            input_layout = QtWidgets.QHBoxLayout()
             input_layout.addWidget(prefix_label)
             input_layout.addWidget(self.new_cage_entry)
             layout.addLayout(input_layout)
@@ -156,6 +156,7 @@ class MouseTransfer(QDialog):
             self.selected_mouse["nuCA"] = "Death Row"
             self.selected_mouse["category"] = "Death Row"
             self.mice_status.death[self.selected_mouse["ID"]] = self.selected_mouse
+            
             logging.debug(f"TRANSFER: Mouse {self.selected_mouse.get('ID')} added to death row.")
             logging.debug(f"TRANSFER: After modification - Regular: {len(self.mice_status.regular)}, Waiting: {len(self.mice_status.waiting)}, Death: {len(self.mice_status.death)}")
         self._cleanup_post_transfer()
@@ -318,6 +319,6 @@ class MouseTransfer(QDialog):
         if dialog:
             dialog.close()
         logging.debug("TRANSFER: _cleanup_post_transfer called. Calling gui.redraw_canvas().")
-        self.gui.gui.redraw_canvas()
-        self.gui.gui.determine_save_status()
-        # self.gui.close_metadata_window() # This method is not implemented in mdb_gui.py yet
+        self.mouseDB[self.selected_mouse["ID"]] = self.selected_mouse # Update the main mouseDB
+        self.gui.redraw_canvas()
+        self.gui.determine_save_status()

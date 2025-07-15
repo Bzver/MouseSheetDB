@@ -17,8 +17,6 @@ class MousePlotter(QWidget):
         self.main_layout = QVBoxLayout(self)
         self.setLayout(self.main_layout)
 
-        self.gui.setGeometry(300, 300, 1000, 700) # x, y, width, height
-
         self.ax = None
         self.mpl_canvas = None
 

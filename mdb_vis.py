@@ -3,12 +3,11 @@ import pandas as pd
 from collections import namedtuple
 
 from PySide6 import QtWidgets
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene, QGraphicsWidget, QGraphicsGridLayout, QMessageBox
+from PySide6.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsWidget, QGraphicsGridLayout
 from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtGui import QColor, QBrush, QPen, QFont
 
 import mdb_utils as mut
-import mdb_transfer as mtrans
 
 import logging
 
@@ -58,9 +57,26 @@ class CageGraphicsItem(QGraphicsWidget):
         self.cage_color = None
         self.setFlag(QGraphicsWidget.ItemIsMovable, False) # Cages should not be movable
 
-        self.setMinimumSize(180, 150) # Minimum size for the cage
-        self.setPreferredSize(180, 150)
-        self.setMaximumSize(180, 150)
+        # Default size for regular cages
+        self.min_width = 180
+        self.min_height = 150
+        self.pref_width = 180
+        self.pref_height = 150
+        self.max_width = 180
+        self.max_height = 150
+
+        # Adjust size for special cages
+        if self.cage_no in ["Waiting Room", "Death Row"]:
+            self.min_width = 250
+            self.min_height = 200
+            self.pref_width = 250
+            self.pref_height = 200
+            self.max_width = 250
+            self.max_height = 200
+
+        self.setMinimumSize(self.min_width, self.min_height)
+        self.setPreferredSize(self.pref_width, self.pref_height)
+        self.setMaximumSize(self.max_width, self.max_height)
 
         self.setContentsMargins(10, 40, 10, 10) # Left, Top, Right, Bottom margins for internal layout
 
@@ -97,14 +113,21 @@ class CageGraphicsItem(QGraphicsWidget):
         if num_mice == 0:
             return
 
-        # Simple grid layout for mice within the cage
-        max_cols = int(np.sqrt(num_mice)) + 1
-        
+        # Calculate rows and columns for a more even distribution
+        # Aim for a layout that is as square as possible
+        if num_mice > 0:
+            cols = int(np.ceil(np.sqrt(num_mice)))
+            rows = int(np.ceil(num_mice / cols))
+        else:
+            cols = 1
+            rows = 1
+
         for i, mouse in enumerate(self.mice_data):
-            row = i // max_cols
-            col = i % max_cols
+            row = i // cols
+            col = i % cols
             mouse_item = MouseGraphicsItem(mouse, size=30)
             self.cage_layout.addItem(mouse_item, row, col)
+            self.cage_layout.setAlignment(mouse_item, Qt.AlignCenter) # Center items within their cells
 
 class MouseVisualizer(QWidget):
     def __init__(self, parent, mouseDB, current_category, canvas_widget):
@@ -114,10 +137,9 @@ class MouseVisualizer(QWidget):
         self.current_category = current_category
         self.canvas_widget = canvas_widget
 
-        self.main_layout = QVBoxLayout(self)
+        self.main_layout = QtWidgets.QVBoxLayout(self)
         self.setLayout(self.main_layout)
 
-        self.gui.setGeometry(300, 300, 1000, 700) # x, y, width, height
         self.graphics_view = None # For QGraphicsView
         self.graphics_scene = None # For QGraphicsScene
 
@@ -173,8 +195,8 @@ class MouseVisualizer(QWidget):
         grid_widget.setLayout(self.cage_grid_layout)
         self.graphics_scene.addItem(grid_widget)
 
-        # Position the grid_widget (adjust as needed)
-        grid_widget.setPos(50, 50) # Example position
+        # Position the grid_widget
+        grid_widget.setPos(50, 20) # Move regular cages higher with a top margin
 
         self.draw_special_cages_qt()
 
@@ -205,17 +227,31 @@ class MouseVisualizer(QWidget):
             self.mouse_artists.extend([(mouse_item, mouse_item.mouse_data) for mouse_item in cage_item.findChildren(MouseGraphicsItem)])
 
     def draw_special_cages_qt(self):
-        # Waiting Room
-        waiting_cage_item = CageGraphicsItem("Waiting Room", list(self.mice_status.waiting.values()))
-        waiting_cage_item.setPos(850 - waiting_cage_item.preferredSize().width()/2, 600 - waiting_cage_item.preferredSize().height()/2) # Position manually for now
-        waiting_cage_item.cage_color = QColor(Qt.blue) # Set border color
-        self.graphics_scene.addItem(waiting_cage_item)
-        
-        # Death Row
+        scene_width = self.graphics_scene.width()
+        top_margin = 20
+        right_margin = 50
+        vertical_spacing = 20
+
+        # Death Row (plot higher and to the right)
         death_cage_item = CageGraphicsItem("Death Row", list(self.mice_status.death.values()))
-        death_cage_item.setPos(850 - death_cage_item.preferredSize().width()/2, 300 - death_cage_item.preferredSize().height()/2) # Position manually for now
+        death_width = death_cage_item.preferredSize().width()
+        death_height = death_cage_item.preferredSize().height()
+        
+        x_death = scene_width - right_margin - death_width
+        y_death = top_margin
+        death_cage_item.setPos(x_death, y_death)
         death_cage_item.cage_color = QColor(Qt.darkMagenta)
         self.graphics_scene.addItem(death_cage_item)
+
+        # Waiting Room (plot below Death Row)
+        waiting_cage_item = CageGraphicsItem("Waiting Room", list(self.mice_status.waiting.values()))
+        waiting_width = waiting_cage_item.preferredSize().width()
+        
+        x_waiting = scene_width - right_margin - waiting_width
+        y_waiting = y_death + death_height + vertical_spacing
+        waiting_cage_item.setPos(x_waiting, y_waiting)
+        waiting_cage_item.cage_color = QColor(Qt.blue) # Set border color
+        self.graphics_scene.addItem(waiting_cage_item)
 
     def mice_count_for_monitor(self):
         # Clear data from previous category
@@ -293,37 +329,18 @@ class MouseVisualizer(QWidget):
         is_on_death_row = self.selected_mouse.get("nuCA") == "Death Row"
 
         if is_on_death_row:
-            self.menu.addAction("Release from Death Row", lambda: self._transfer_mouse_action("from_death_row"))
+            self.menu.addAction("Release from Death Row", lambda: self.gui.transfer_mouse_action("from_death_row"))
         else:
-            self.menu.addAction("Transfer to current cages", lambda: self._transfer_mouse_action("existing_cage"))
-            self.menu.addAction("Transfer to Death Row", lambda: self._transfer_mouse_action("death_row"))
+            self.menu.addAction("Transfer to current cages", lambda: self.gui.transfer_mouse_action("existing_cage"))
+            self.menu.addAction("Transfer to Death Row", lambda: self.gui.transfer_mouse_action("death_row"))
             if is_in_waiting_room:
-                self.menu.addAction("Transfer to a new cage", lambda: self._transfer_mouse_action("new_cage"))
+                self.menu.addAction("Transfer to a new cage", lambda: self.gui.transfer_mouse_action("new_cage"))
             else: # in regular cages
-                self.menu.addAction("Transfer to waiting room", lambda: self._transfer_mouse_action("waiting_room"))
-                self.menu.addAction("Add to pedigree graph", lambda: self.gui.add_selected_mouse_to_family_tree(self.selected_mouse))
-                self.menu.addAction("Edit mouse entry", self.gui.edit_selected_mouse_entry)
+                self.menu.addAction("Transfer to waiting room", lambda: self.gui.transfer_mouse_action("waiting_room"))
+                self.menu.addAction("Add to pedigree graph", self.gui.add_selected_mouse_to_family_tree)
+                self.menu.addAction("Edit mouse entry", self.gui.transfer_mouse_action)
 
         self.menu.exec(global_pos)
-
-    def _transfer_mouse_action(self, action_type): # Wrapper for transfer
-        logging.debug(f"GUI: Initiating transfer action: {action_type} for mouse ID: {self.selected_mouse.get('ID')}")
-        # Pass self (the GUI instance) as the parent for the transfer dialog
-        transfer_instance = mtrans.MouseTransfer(self, self.mouseDB, self.current_category, self.mice_status)
-        if action_type == "death_row":
-            transfer_instance.transfer_to_death_row()
-        elif action_type == "existing_cage":
-            transfer_instance.transfer_to_existing_cage()
-        elif action_type == "waiting_room":
-            transfer_instance.transfer_to_waiting_room()
-        elif action_type == "new_cage":
-            transfer_instance.transfer_to_new_cage()
-        elif action_type == "from_death_row":
-            transfer_instance.transfer_from_death_row()
-        else:
-            QMessageBox.critical(self, "Error", f"Unknown transfer action: {action_type}")
-
-    #########################################################################################################################
 
     def show_metadata_window(self, mouse, global_pos):
         if self.menu:  # Don not open if context menu is open
@@ -345,7 +362,7 @@ class MouseVisualizer(QWidget):
         metadata_window.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint) # ToolTip for no taskbar entry, Frameless for no title bar
         metadata_window.setAttribute(Qt.WA_DeleteOnClose) # Ensure it's deleted when closed
 
-        layout = QVBoxLayout(metadata_window)
+        layout = QtWidgets.QVBoxLayout(metadata_window)
         layout.setContentsMargins(5, 5, 5, 5) # Smaller margins
         
         separ_geno = "------GENOTYPE------"

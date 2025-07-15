@@ -2,13 +2,14 @@ import os
 import copy
 
 from PySide6 import QtWidgets
-from PySide6.QtWidgets import QWidget, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox
 
 import mdb_io as mio
 import mdb_pedig as mped
 import mdb_plot as mplt
 import mdb_vis as mvis
 import mdb_edit as medit
+import mdb_transfer as mtrans
 
 import traceback
 import logging
@@ -66,7 +67,7 @@ class MouseDatabaseGUI(QWidget):
         self.prev_category_button.setEnabled(False)
         self.category_nav_layout.addWidget(self.prev_category_button)
 
-        self.category_textbox = QLineEdit()
+        self.category_textbox = QtWidgets.QLineEdit()
         self.category_textbox.setReadOnly(True)
         self.category_textbox.setFixedWidth(200) # Adjust width as needed
         self.category_nav_layout.addWidget(self.category_textbox)
@@ -104,6 +105,8 @@ class MouseDatabaseGUI(QWidget):
         self.canvas_widget = None
         self.last_action = "analyze"
         self.is_saved = True
+
+        self.selected_mouse = None
 
         self.is_debug = True # Make if False before merging to main
         if self.is_debug: logging.getLogger().setLevel(logging.DEBUG)
@@ -328,6 +331,7 @@ class MouseDatabaseGUI(QWidget):
         self._perform_analysis_action() # Trigger analysis based on last action
         
     def _perform_analysis_action(self, verbose=None): # Clear the canvas container layout before adding new content
+        self.showMaximized()
         self._ensure_canvas_deletion()
         self.canvas_widget = None
         self.visualizer = None
@@ -352,18 +356,41 @@ class MouseDatabaseGUI(QWidget):
 
     #########################################################################################################################
 
+    def transfer_mouse_action(self, action_type): # Wrapper for transfer
+        self.selected_mouse = self.visualizer.selected_mouse
+        logging.debug(f"GUI: Initiating transfer action: {action_type} for mouse ID: {self.selected_mouse.get('ID')}")
+        # Pass self (the GUI instance) as the parent for the transfer dialog
+        transfer_instance = mtrans.MouseTransfer(self, self.mouseDB, self.current_category, self.visualizer.mice_status)
+        if action_type == "death_row":
+            transfer_instance.transfer_to_death_row()
+        elif action_type == "existing_cage":
+            transfer_instance.transfer_to_existing_cage()
+        elif action_type == "waiting_room":
+            transfer_instance.transfer_to_waiting_room()
+        elif action_type == "new_cage":
+            transfer_instance.transfer_to_new_cage()
+        elif action_type == "from_death_row":
+            transfer_instance.transfer_from_death_row()
+        else:
+            QMessageBox.critical(self, "Error", f"Unknown transfer action: {action_type}")
+        self.selected_mouse = None # Cleanup the selected mouse
+
     def add_new_mouse_entry(self): # Wrapper for add
         self.editor = medit.MouseEditor(self, self.mouseDB, None, mode="new")
         self.editor.exec()
 
     def edit_selected_mouse_entry(self): # Wrapper for edit
-        self.editor = medit.MouseEditor(self, self.mouseDB, self.visualizer.selected_mouse, mode="edit")
+        self.selected_mouse = self.visualizer.selected_mouse
+        self.editor = medit.MouseEditor(self, self.mouseDB, self.selected_mouse, mode="edit")
         self.editor.exec()
+        self.selected_mouse = None
 
-    def add_selected_mouse_to_family_tree(self, selected_mouse):
-        if selected_mouse is not None:
-            selected_mouse["parentF"] = "Pending"
-            selected_mouse["parentM"] = "Pending"
+    def add_selected_mouse_to_family_tree(self):
+        self.selected_mouse = self.visualizer.selected_mouse
+        if self.selected_mouse is not None:
+            self.selected_mouse["parentF"] = "Pending"
+            self.selected_mouse["parentM"] = "Pending"
+            self.selected_mouse = None
 
     #########################################################################################################################
 
