@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsW
 from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtGui import QColor, QBrush, QPen, QFont
 
-import mdb_utils as mut
+from . import mdb_helper as muh
 
 import logging
 
@@ -28,8 +28,8 @@ class MouseGraphicsItem(QGraphicsWidget):
         self.age = self.mouse_data.get("age", None)
         self.genotype = self.mouse_data.get("genotype", "N/A")
 
-        self.dot_color = QColor(mut.mice_dot_color_picker(self.sex, self.age))
-        self.geno_text, geno_color_str = mut.genotype_abbreviation_color_picker(self.genotype)
+        self.dot_color = QColor(muh.mice_dot_color_picker(self.sex, self.age))
+        self.geno_text, geno_color_str = muh.genotype_abbreviation_color_picker(self.genotype)
         self.geno_color = QColor(geno_color_str)
 
     def paint(self, painter, option, widget):

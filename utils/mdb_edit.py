@@ -2,7 +2,7 @@ from PySide6 import QtWidgets
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QLineEdit, QMessageBox, QLabel, QPushButton, QRadioButton
 
-import mdb_utils as mut
+from . import mdb_helper as muh
 
 import logging
 
@@ -148,7 +148,7 @@ class MouseEditor(QtWidgets.QDialog):
 
         if self.mode == "edit":
             birth_date = self.edit_mouse_var.get("birthDate", "")
-            birth_date_str = mut.convert_date_to_string(birth_date)
+            birth_date_str = muh.convert_date_to_string(birth_date)
             self.edit_birthdate_entry.setText(birth_date_str)
 
     def edit_breeddate_element(self): # TODO: CALENDAR WIDGET INSTEAD OF DIRECT INPUT!
@@ -162,7 +162,7 @@ class MouseEditor(QtWidgets.QDialog):
 
         if self.mode == "edit" and self.edit_mouse_var.get("category") != "BACKUP":
             breed_date = self.edit_mouse_var.get("breedDate", "")
-            breed_date_str = mut.convert_date_to_string(breed_date)
+            breed_date_str = muh.convert_date_to_string(breed_date)
             self.edit_breeddate_entry.setText(breed_date_str)
         else:
             self.edit_breeddate_entry.setText("Non Applicable")
@@ -191,7 +191,7 @@ class MouseEditor(QtWidgets.QDialog):
         if not input_toe_str: # Empty, maybe user has not input yet, don't color the bg red but still return False
             return False
         logging.debug(f"Toe Input: '{input_toe_str}'")
-        validated_toe = mut.process_toeID(input_toe_str)
+        validated_toe = muh.process_toeID(input_toe_str)
         logging.debug(f"Toe valid: '{validated_toe}'")
         if validated_toe == "69":
             logging.debug(f"Invalid Toe detected: '{input_toe_str}'")
@@ -214,7 +214,7 @@ class MouseEditor(QtWidgets.QDialog):
         logging.debug(f"{date_mode.capitalize()} Input: '{input_date_str}'")
         if input_date_str in ["Non Applicable"] and date_mode == "breeddate": # Skip check for fixed N/A cases
             return True
-        validated_date = mut.convert_to_date(input_date_str)
+        validated_date = muh.convert_to_date(input_date_str)
         if validated_date is None:
             logging.debug(f"Invalid {date_mode} detected: '{input_date_str}'")
             if date_mode == "birthdate":
@@ -264,15 +264,15 @@ class MouseEditor(QtWidgets.QDialog):
         # Format toe
         toe = f"toe{toe_input}" if not toe_input.startswith("toe") else toe_input
 
-        birth_date = mut.convert_to_date(birth_date_str)
-        age = mut.date_to_days(birth_date)
+        birth_date = muh.convert_to_date(birth_date_str)
+        age = muh.date_to_days(birth_date)
 
         # Generate a unique ID for the new mouse
-        genoID = mut.process_genotypeID(genotype)
-        dobID = mut.process_birthDateID(birth_date_str)
-        toeID = mut.process_toeID(toe)
-        sexID = mut.process_sexID(sex)
-        cageID = mut.process_cageID(cage)
+        genoID = muh.process_genotypeID(genotype)
+        dobID = muh.process_birthDateID(birth_date_str)
+        toeID = muh.process_toeID(toe)
+        sexID = muh.process_sexID(sex)
+        cageID = muh.process_cageID(cage)
         new_id = f"{genoID}{dobID}{toeID}{sexID}{cageID}"
 
         new_mouse_data = {
@@ -323,14 +323,14 @@ class MouseEditor(QtWidgets.QDialog):
         logging.debug(f"Formatted toe: {updated_toe}")
 
         # Convert input str days into date object for better data processing
-        updated_birth_date = mut.convert_to_date(updated_birth_date_str)
+        updated_birth_date = muh.convert_to_date(updated_birth_date_str)
         if updated_breed_date_str and updated_breed_date_str != "Non Applicable":
-            updated_breed_date = mut.convert_to_date(updated_breed_date_str)
+            updated_breed_date = muh.convert_to_date(updated_breed_date_str)
         else: 
             updated_breed_date = None
         
-        age = mut.date_to_days(updated_birth_date)
-        breed_days = mut.date_to_days(updated_breed_date) if updated_breed_date else None
+        age = muh.date_to_days(updated_birth_date)
+        breed_days = muh.date_to_days(updated_breed_date) if updated_breed_date else None
         logging.debug(f"Calculated age_days: {age}, breed_days: {breed_days}")
 
         # Update the mouse data
@@ -360,6 +360,6 @@ class MouseEditor(QtWidgets.QDialog):
     def _update_id_animation(self):
         """Updates the ID display with a random ID."""
         if self.reroll_active:
-            self.disp_id_entry.setText(mut.generate_random_id())
+            self.disp_id_entry.setText(muh.generate_random_id())
         else:
             self.reroll_timer.stop()

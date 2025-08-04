@@ -4,12 +4,12 @@ import copy
 from PySide6 import QtWidgets
 from PySide6.QtWidgets import QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox
 
-import mdb_io as mio
-import mdb_pedig as mped
-import mdb_plot as mplt
-import mdb_vis as mvis
-import mdb_edit as medit
-import mdb_transfer as mtrans
+import utils.mdb_io as mio
+import utils.mdb_pedig as mped
+import utils.mdb_plot as mplt
+import utils.mdb_vis as mvis
+import utils.mdb_edit as medit
+import utils.mdb_transfer as mtrans
 
 import traceback
 import logging

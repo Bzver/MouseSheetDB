@@ -1,7 +1,7 @@
 from PySide6 import QtWidgets
 from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QMessageBox
 
-import mdb_utils as mut
+from . import mdb_helper as muh
 
 import logging
 
@@ -174,7 +174,7 @@ class MouseTransfer(QDialog):
 
             original_cage = self.selected_mouse["cage"]
             self.selected_mouse["nuCA"] = original_cage
-            self.selected_mouse["category"] = mut.assign_category(original_cage)
+            self.selected_mouse["category"] = muh.assign_category(original_cage)
             logging.debug(f"Mouse {self.selected_mouse.get('ID')} restored to original cage {original_cage} and category {self.selected_mouse['category']}.")
 
             if self.selected_mouse["category"] == self.current_category:
@@ -211,7 +211,7 @@ class MouseTransfer(QDialog):
         self._remove_from_dict("waiting")
 
         self.selected_mouse["nuCA"] = taCA
-        self.selected_mouse["category"] = mut.assign_category(taCA) if mode == "existing" else self.current_category
+        self.selected_mouse["category"] = muh.assign_category(taCA) if mode == "existing" else self.current_category
 
         if taCA not in self.mice_status.regular:
             self.mice_status.regular[taCA] = []
