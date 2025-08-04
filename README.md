@@ -32,3 +32,4 @@ A tool for managing small transgenic mouse colonies (less than 500 mice) with cu
 ## To-do
 - Customizable genotype symbols and categories via GUI
 - Add mice lineage record and visualization
+
