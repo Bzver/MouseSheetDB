@@ -3,7 +3,7 @@ import shutil
 import pandas as pd
 from datetime import date, datetime
 
-from . import mdb_helper as muh
+from utils import mdb_helper as muh
 
 import traceback
 import logging
@@ -14,17 +14,11 @@ This module handles input/output operations for the MouseSheetDB, including read
 validating Excel files, managing changelogs, and processing mouse data.
 """
 
-# Define required columns for the mouse databasefor loaded Excel
 REQUIRED_COLUMNS = ["ID", "cage", "sex", "toe", "genotype", "birthDate", "breedDate"]
-# Define columns that contain date information
 DATE_COLUMNS = ["birthDate", "breedDate"]
-# Define columns used for comparing old and new mouse data in the changelog
-COMPARE_COLUMNS = ["nuCA", "sex", "toe", "genotype", "birthDate", "breedDate", "parentF", "parentM"]
-# Define sheet names used in the changelog Excel file
+COMPARE_COLUMNS = ["nuCA", "sex", "toe", "genotype", "birthDate", "breedDate"]
 CHANGELOG_SHEETS = ["Added", "Changed"]
-# Define columns to keep when organizing changelog data
 KEEP_COLUMNS = ["ID"] + COMPARE_COLUMNS + ["age", "breedDays", "category"]
-# Define columns that are manually editable in the database
 MANUAL_COLUMNS = ["cage", "nuCA", "sex", "toe", "genotype", "birthDate"]
 
 
@@ -64,8 +58,7 @@ def write_processed_data_to_excel(excel_file, processed_data):
     Returns:
         bool: True if the data was successfully written, False otherwise.
     """
-    parental_mice_live, living_mice = parse_mice_data_for_write(processed_data)
-    mice_to_write = memorial_cleanup(processed_data, living_mice, parental_mice_live)
+    mice_to_write = memorial_cleanup(processed_data)
     sorted_mice = dict(sorted(mice_to_write.items(),key=lambda x: x[1].get("cage")))
     df_sorted = pd.DataFrame.from_dict(sorted_mice, orient="index")
     df_postprocessed = muh.process_df_before_export(df_sorted, DATE_COLUMNS)
@@ -217,7 +210,7 @@ def load_changelog_add(changelog_df, mice_dict, changes_applied_count, mice_adde
                 "ID": changelog_id,
                 **{key: changelog_row.get(key, "") for key in [
                     "nuCA", "sex", "toe", "genotype", "birthDate", "breedDate",
-                    "age", "breedDays", "parentF", "parentM"
+                    "age", "breedDays"
                 ]},
                 "category": changelog_row.get("category", "BACKUP"),
                 "cage": "Waiting Room",
@@ -252,7 +245,7 @@ def load_changelog_change(changelog_df, mice_dict, changes_applied_count, except
         
         if changelog_id in mice_dict:
             mouse_data = mice_dict[changelog_id]
-            fields_to_update = ["nuCA", "sex", "toe", "genotype", "birthDate", "breedDate", "category", "parentF", "parentM"]
+            fields_to_update = ["nuCA", "sex", "toe", "genotype", "birthDate", "breedDate", "category"]
             for field in fields_to_update:
                 if field in changelog_row:
                     mouse_data[field] = changelog_row[field]
@@ -341,11 +334,9 @@ def parse_mice_data_for_write(processed_data):
     Args:
         processed_data (dict): A dictionary containing the processed mouse data.
     Returns:
-        tuple: A tuple containing two sets:
-               - parental_mice_live (set): IDs of parental mice with living offspring.
-               - living_mice (set): IDs of all living mice.
+        iving_mice (set): IDs of all living mice.
     """
-    parental_mice, parental_mice_live, living_mice = set(), set(), set()
+    living_mice = set()
     for mouse_id, mouse_info in processed_data.items():
         if mouse_info.get("nuCA") == "Death Row":
             logging.info(f"Death Row mouse {mouse_id} transfer to Memorial")
@@ -361,14 +352,11 @@ def parse_mice_data_for_write(processed_data):
             if pd.isna(breed_date):
                 mouse_info["breedDate"] = date.today()
                 mouse_info["breedDays"] = 0
-        current_parental_mice = mouse_info["parentF"] + mouse_info["parentM"]
-        parental_mice.add(current_parental_mice)
         if mouse_info["category"] != "Memorial":
-            parental_mice_live.add(current_parental_mice)
             living_mice.add(mouse_info["ID"])
-    return parental_mice_live, living_mice
+    return living_mice
 
-def memorial_cleanup(processed_data, living_mice, parental_mice_live):
+def memorial_cleanup(processed_data):
     """
     Performs a cleanup of "Memorial" mice based on age, living parents, and living offspring.
     Mice in the "Memorial" category that are older than 365 days, have no living parents,
@@ -385,9 +373,7 @@ def memorial_cleanup(processed_data, living_mice, parental_mice_live):
     mice_to_write = {}
     for mouse_id, mouse_info in processed_data.items():
         isAncient = mouse_info["age"] > 365
-        hasLivingParent = mouse_info["parentF"] in living_mice or mouse_info["parentM"] in living_mice
-        isParent = mouse_info["ID"] in parental_mice_live # is parent of still living mice
-        if mouse_info.get("nuCA") == "Memorial" and isAncient and not hasLivingParent and not isParent:
+        if mouse_info.get("nuCA") == "Memorial" and isAncient:
             logging.info(f"Cleaned up mouse {mouse_id}, which has no living parents or children and is born more than 365 days ago.")
             continue
         cleaned_mouse_info = mouse_info.copy()
