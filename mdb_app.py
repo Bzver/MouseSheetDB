@@ -1,14 +1,12 @@
-import os
-import copy
-
 from PySide6 import QtWidgets
 from PySide6.QtWidgets import QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox
 
-import io.mdb_io as mio
+import mdb_io.io_helper as mio
 import utils.mdb_plot as mplt
 import utils.mdb_vis as mvis
 import utils.mdb_edit as medit
 import utils.mdb_transfer as mtrans
+from mdb_io import Mouse_DB
 
 import traceback
 import logging
@@ -48,6 +46,11 @@ class MDB_App(QWidget):
         self.table_button.clicked.connect(self._on_table_btn_clicked)
         self.table_button.setEnabled(False)
         self.button_layout.addWidget(self.table_button)
+
+        self.cageview_button = QPushButton("Visualize")
+        self.cageview_button.clicked.connect(self._on_cageview_btn_clicked)
+        self.cageview_button.setEnabled(False)
+        self.button_layout.addWidget(self.cageview_button)
 
         self.analyze_button = QPushButton("Analyze")
         self.analyze_button.clicked.connect(self._on_analyze_btn_clicked)
@@ -98,9 +101,8 @@ class MDB_App(QWidget):
         self.category_index = 0
         self.category_names = ["DEFAULT"]
 
-        self.visualizer = None
-        self.editor = None
-        self.plotter = None
+        self.visualizer, self.editor, self.plotter = None, None, None
+        self.db = Mouse_DB()
         
         self.canvas_widget = None
         self.last_action = "table"
@@ -124,102 +126,57 @@ class MDB_App(QWidget):
         logging.debug("browse_file called.")
         if not self.is_saved:
             reply = QMessageBox.question(self, "Unsaved Changes",
-            "You have unsaved changes. Do you really want to load another excel without saving?",
+            "You have unsaved changes. Do you really want to load another file without saving?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.No:
                 return
         self._reset_state()
-        if self.load_excel_file():
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Load Workspace", "", "DB Files (*.db);;Excel Files (*.xlsx *.xls)"
+        )
+        if not file_path:
+            return
+        
+        self.is_saved = True
+        
+        try:
+            if file_path.endswith(".db"):
+                self._load_db_file(file_path)
+            else:
+                self._load_excel_file(file_path)
             QMessageBox.information(self, "Success", "File loaded successfully!")
             self.load_changelog_button.setEnabled(True)
             self.add_entries_button.setEnabled(True)
             self._on_category_selection_changed()
             logging.debug("File loaded successfully and initial analysis triggered.")
-
-    def load_excel_file(self):
-        self.file_path, _ = QFileDialog.getOpenFileName(self, "Open Excel File", "", "Excel Files (*.xlsx *.xls)")
-        if not self.file_path:
-            logging.debug("No file selected in load_excel_file.")
-            return False
-        self.is_saved = True
-        try:
-            mio.validate_excel(self.file_path)
-            self.processed_data = mio.data_preprocess(self.file_path, "MDb")
-            self.mouse_dict = copy.deepcopy(self.processed_data)
-            self.current_category = self.category_names[0]
-            self._update_control_ui()
-            if self.processed_data is None:
-                raise Exception("Failed to preprocess Excel data")
-            logging.debug("Excel file loaded and preprocessed successfully.")
-            return True
         except Exception as e:
             logging.error(f"Error loading/preprocessing file: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Error loading/preprocessing file: {e}\n{traceback.format_exc()}")
-            self._reset_state()
-            return False
+
+    def _load_db_file(self, file_path):
+        self.db.set_db_path(file_path)
+
+    def _load_excel_file(self, file_path):   # To be changed to load excel into DB
+        mio.validate_excel(file_path)
+        processed_data = mio.data_preprocess(file_path, "MDb")
+        mouse_dict = self.processed_data.copy()
+        self._update_control_ui()
+        if processed_data is None:
+            raise Exception("Failed to preprocess Excel data")
+        logging.debug("Excel file loaded and preprocessed successfully.")
 
     def save_changes(self):
-        logging.debug("save_changes called.")
-        try:
-            if self.visualizer and self.visualizer.mice_status.waiting:
-                QMessageBox.critical(self, "Save Blocked","Cannot save while mice are in waiting room")
-                return
-            output_dir = os.path.dirname(self.file_path)
-            log_file = mio.mice_changelog(self.processed_data, self.mouse_dict, output_dir)
-            if self.is_debug: # Save in debug no matter what
-                file_suffix = os.path.splitext(self.file_path)[1]
-                file_without_suffix = os.path.splitext(self.file_path)[0]
-                debug_filepath = f"{file_without_suffix}_DEBUG{file_suffix}"
-                mio.write_processed_data_to_excel(debug_filepath, self.mouse_dict)
-                logging.debug(f"Debugging! Will save to {debug_filepath}!")
-                return
-            if not log_file:
-                logging.error("Error generating log file, save operation cancelled.")
-                QMessageBox.information(self, "Changes Not Logged", f"Log file fail to generate. \n{traceback.format_exc()}")
-                return
-            if not mio.create_backup(self.file_path):
-                logging.error("Error generating backup, save operation cancelled.")
-                QMessageBox.information(self, "Backup Not created", f"Fail to create backup. \n{traceback.format_exc()}")
-
-            logging.info(f"Changes logged and saved to: {log_file}")
-            QMessageBox.information(self, "Changes Logged", f"Mice changes Logged to: \n{log_file}")
-            if mio.write_processed_data_to_excel(self.file_path, self.mouse_dict):
-                self.processed_data = copy.deepcopy(self.mouse_dict) # Update the reference data upon successfully saving
-        except Exception as e:
-            logging.error(f"Failed to save Excel file: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Failed to save Excel file: {e}\n{traceback.format_exc()}")
-            return
+        pass # To be re-implemented in sql backend
 
     def load_changelog(self):
-        """Loads a changelog file and applies changes to the current data."""
-        if not self.processed_data:
-            logging.warning("load_changelog: No data loaded.")
-            QMessageBox.warning(self, "No Data Loaded", "Please load an Excel file first.")
-            return
-        changelog_file_path, _ = QFileDialog.getOpenFileName(self, "Open Changelog File", "", "Excel Files (*.xlsx *.xls)")
-        if not changelog_file_path:
-            logging.debug("No changelog file selected.")
-            return
-        try:
-            result_message, exception_entries = mio.changelog_loader(changelog_file_path, self.mouse_dict)
-            if exception_entries:
-                result_message.append("\nThe following issues were encountered:\n" +"\n".join(exception_entries))
-                logging.warning(f"Changelog applied with issues: {exception_entries}")
-                QMessageBox.warning(self, "Changelog Applied with Issues","\n".join(result_message))
-            else:
-                logging.info("Changelog applied successfully.")
-                QMessageBox.information(self, "Changelog Applied","\n".join(result_message))
-            self.is_saved = False
-            self.save_button.setEnabled(True)
-            self._refresh_canvas_container()
-        except Exception as e:
-            logging.error(f"Error loading or applying changelog: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error",f"Error loading or applying changelog: {e}\n{traceback.format_exc()}")
+        pass # To be re-implemented in sql backend
 
     #########################################################################################################################
 
-    def analyze_data(self):
-        """Prepares data for the mouse count analyze visualization and passes it to the visualizer."""
+    def _show_tables(self):
+        pass # To be implemented
+
+    def _analyze_data(self):
         self.last_action = "analyze" # Update last action
         logging.debug("analyze_data called.")
         try:
@@ -234,8 +191,7 @@ class MDB_App(QWidget):
             logging.error(f"Error plotting analysis data: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Error plotting analysis data: {e}\n{traceback.format_exc()}")
 
-    def monitor_cages(self):
-        """Prepares data for the cage monitor visualization and passes it to the visualizer."""
+    def _monitor_cages(self):
         self.last_action = "monitor"
         logging.debug("monitor_cages called.")
         try:
@@ -311,6 +267,10 @@ class MDB_App(QWidget):
         self.last_action = "table"
         self._refresh_canvas_container()
 
+    def _on_cageview_btn_clicked(self):
+        self.last_action = "visualize"
+        self._refresh_canvas_container()
+
     def _refresh_canvas_container(self):
         self.showMaximized()
         self._ensure_canvas_deletion()
@@ -318,9 +278,13 @@ class MDB_App(QWidget):
         self.visualizer = None
         self.plotter = None
         if self.last_action == "table":
-            self.monitor_cages()
+            self._show_tables()
+        elif self.last_action == "visualize":
+            self._monitor_cages()
+        elif self.last_action == "analyze":
+            self._analyze_data()
         else:
-            self.analyze_data()
+            raise KeyError(f"Invalid mode: {self.last_action}.")
         self._update_control_ui()
 
     def _ensure_canvas_deletion(self):
@@ -363,13 +327,6 @@ class MDB_App(QWidget):
         self.editor = medit.MouseEditor(self, self.mouse_dict, self.selected_mouse, mode="edit")
         self.editor.exec()
         self.selected_mouse = None
-
-    def add_selected_mouse_to_family_tree(self):
-        self.selected_mouse = self.visualizer.selected_mouse
-        if self.selected_mouse is not None:
-            self.selected_mouse["parentF"] = "Pending"
-            self.selected_mouse["parentM"] = "Pending"
-            self.selected_mouse = None
 
     #########################################################################################################################
 
