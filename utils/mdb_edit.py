@@ -1,26 +1,26 @@
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QLineEdit, QMessageBox, QLabel, QPushButton, QRadioButton
+from datetime import date
 
 from . import mdb_helper as muh
 
 import logging
 
 class MouseEditor(QtWidgets.QDialog):
-    def __init__(self, parent, mouseDB, selected_mouse, mode="edit"):
+    def __init__(self, parent, db_instance, selected_mouse, mode="edit"):
         """
         Initializes the MouseEditor class, in charge of the sole implementation of mice
         data edit (e.g. toe, genotype, day of birth) for correction.
         Args:
             parent: The parent PySide6 widget.
-            gui: The main GUI instance.
-            mouseDB: The mouse database object.
+            db_instance: The MouseDB instance for database operations.
             selected_mouse: The dictionary representing the currently selected mouse,
             derived from gui and mouse_artists.
             mode (str): The mode of the editor ("edit" or "add").
         """
         super().__init__(parent)
-        self.mouseDB = mouseDB
+        self.db = db_instance  # Use db for database operations
         self.gui = parent
         self.selected_mouse = selected_mouse
         self.mode = mode
@@ -40,11 +40,6 @@ class MouseEditor(QtWidgets.QDialog):
         self.edit_birthdate_entry = QLineEdit()
         self.edit_breeddate_entry = QLineEdit()
         
-        # ID animation control
-        self.reroll_active = False
-        self.reroll_timer = QTimer(self)
-        self.reroll_timer.timeout.connect(self._update_id_animation)
-        self.reroll_delay = 50  # Milliseconds between updates
 
         self.setup_editor_ui()
 
@@ -79,10 +74,8 @@ class MouseEditor(QtWidgets.QDialog):
             self.disp_id_entry.setText(disp_id_content)
             self.disp_id_entry.setReadOnly(True)
         else:
-            self.reroll_active = True
-            self.reroll_delay = 50  # FPS = 1000 / 50 = 20
-            self.disp_id_entry.setFocusPolicy(Qt.NoFocus) # Disable focus to prevent manual editing
-            self.reroll_timer.start(self.reroll_delay) # Start animation immediately for new entry
+            self.disp_id_entry.setReadOnly(False) # Allow manual input for new ID
+            self.disp_id_entry.setText("") # Start with an empty ID field
 
     def edit_sex_element(self):
         """
@@ -251,7 +244,9 @@ class MouseEditor(QtWidgets.QDialog):
         logging.debug("save_new_entry called.")
         cage = "Waiting Room"
         selected_sex_button = self.edit_sex_group.checkedButton()
-        sex = selected_sex_button.text() if selected_sex_button else ""
+        sex_display = selected_sex_button.text() if selected_sex_button else ""
+        sex = 'M' if sex_display == '♂' else 'F' # Convert display to schema value
+        
         toe_input = self.edit_toe_entry.text()
         genotype = self.edit_genotype_entry.text()
         birth_date_str = self.edit_birthdate_entry.text()
@@ -262,33 +257,29 @@ class MouseEditor(QtWidgets.QDialog):
             return
 
         # Format toe
-        toe = f"toe{toe_input}" if not toe_input.startswith("toe") else toe_input
+        markings = f"toe{toe_input}" if toe_input and not toe_input.startswith("toe") else toe_input
+        if not markings:
+            markings = None # Ensure it's None if empty for DB
 
-        birth_date = muh.convert_to_date(birth_date_str)
-        age = muh.date_to_days(birth_date)
-
-        # Generate a unique ID for the new mouse
-        genoID = muh.process_genotypeID(genotype)
-        dobID = muh.process_birthDateID(birth_date_str)
-        toeID = muh.process_toeID(toe)
-        sexID = muh.process_sexID(sex)
-        cageID = muh.process_cageID(cage)
-        new_id = f"{genoID}{dobID}{toeID}{sexID}{cageID}"
-
-        new_mouse_data = {
-            "ID": new_id,"cage": cage,"sex": sex,"toe": toe,"genotype": genotype,
-            "birthDate": birth_date,"age": age,"breedDate": None,"breedDays": None,
-            "nuCA": cage,"category": cage
+        new_mouse_data = { # ID handled by db
+            "type": "experiment", # Default type for new mice
+            "sex": sex,
+            "strain": "C57BL/6J", # Default strain
+            "genotype": genotype,
+            "birthDate": birth_date_str,
+            "cage_id": cage,
+            "markings": markings,
+            "is_breeder": 0, # Default to not a breeder
+            "set_date": date.today() # Default set_date for new mice
         }
 
-        # Find a unique key for the new entry in mouseDB
-        new_key = len(self.mouseDB) if self.mouseDB else 0
-        while new_key in self.mouseDB:
-            new_key += 1
-        self.mouseDB[new_key] = new_mouse_data
-
-        QMessageBox.information(self, "Success", f"New mouse entry added with ID: {new_id}")
-        self._close_and_refresh()
+        try:
+            self.db.add_mouse(new_mouse_data)
+            QMessageBox.information(self, "Success", f"New mouse entry adde.")
+            self._close_and_refresh()
+        except Exception as e:
+            logging.error(f"Error adding new mouse: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to add new mouse: {e}")
 
     def save_edit_entry(self):
         """
@@ -301,51 +292,55 @@ class MouseEditor(QtWidgets.QDialog):
             logging.warning("No mouse selected for editing.")
             QMessageBox.critical(self, "Selection Error", "Please select a mouse to edit.")
             return
-
-        # Find the mouse in mouseDB using direct lookup
-        if selected_id in self.mouseDB:
-            mouse_key_to_update = selected_id
-        else:
-            logging.error(f"Selected mouse {selected_id} not found in data.")
-            QMessageBox.critical(self, "Error", "Selected mouse not found in data.")
-            return
+        
+        # No need to find in mouseDB, we will update directly by ID
+        # The db.update_mouse method handles finding the mouse by ID
         
         # Get updated values from form
         selected_sex_button = self.edit_sex_group.checkedButton()
-        updated_sex = selected_sex_button.text() if selected_sex_button else ""
+        updated_sex_display = selected_sex_button.text() if selected_sex_button else ""
+        updated_sex = 'M' if updated_sex_display == '♂' else 'F' # Convert display to schema value
+        
         updated_toe_input = self.edit_toe_entry.text()
         updated_genotype = self.edit_genotype_entry.text()
         updated_birth_date_str = self.edit_birthdate_entry.text()
         updated_breed_date_str = self.edit_breeddate_entry.text()
-        logging.debug(f"Retrieved form values: Sex={updated_sex}, Toe={updated_toe_input}, Genotype={updated_genotype}, BirthDate={updated_birth_date_str}, BreedDate={updated_breed_date_str}")
-
-        updated_toe = f"toe{updated_toe_input}" if not updated_toe_input.startswith("toe") else updated_toe_input # Format toe
-        logging.debug(f"Formatted toe: {updated_toe}")
+        logging.debug(f"Retrieved form values: Sex={updated_sex_display}, Toe={updated_toe_input}, Genotype={updated_genotype}, BirthDate={updated_birth_date_str}, BreedDate={updated_breed_date_str}")
+ 
+        updated_markings = f"toe{updated_toe_input}" if updated_toe_input and not updated_toe_input.startswith("toe") else updated_toe_input # Format markings
+        if not updated_markings:
+            updated_markings = None # Ensure it's None if empty for DB
+        logging.debug(f"Formatted markings: {updated_markings}")
 
         # Convert input str days into date object for better data processing
         updated_birth_date = muh.convert_to_date(updated_birth_date_str)
+        
+        updated_last_litter_date = None
+        is_breeder = 0
         if updated_breed_date_str and updated_breed_date_str != "Non Applicable":
-            updated_breed_date = muh.convert_to_date(updated_breed_date_str)
-        else: 
-            updated_breed_date = None
+            updated_last_litter_date = muh.convert_to_date(updated_breed_date_str)
+            is_breeder = 1 # If breed date is provided, assume it's a breeder
         
-        age = muh.date_to_days(updated_birth_date)
-        breed_days = muh.date_to_days(updated_breed_date) if updated_breed_date else None
-        logging.debug(f"Calculated age_days: {age}, breed_days: {breed_days}")
+        logging.debug(f"Calculated birthDate: {updated_birth_date}, last_litter_date: {updated_last_litter_date}")
 
-        # Update the mouse data
-        self.mouseDB[mouse_key_to_update]["sex"] = updated_sex
-        self.mouseDB[mouse_key_to_update]["toe"] = updated_toe
-        self.mouseDB[mouse_key_to_update]["genotype"] = updated_genotype
-        self.mouseDB[mouse_key_to_update]["birthDate"] = updated_birth_date
-        self.mouseDB[mouse_key_to_update]["age"] = age
-        self.mouseDB[mouse_key_to_update]["breedDate"] = updated_breed_date
-        self.mouseDB[mouse_key_to_update]["breedDays"] = breed_days
-        logging.debug(f"Mouse {selected_id} data updated in mouseDB.")
-        
-        self.gui.determine_save_status() # Use gui's method to update save button state
-        QMessageBox.information(self, "Success", f"Mouse entry {selected_id} updated.")
-        self._close_and_refresh()
+        updates = {
+            "sex": updated_sex,
+            "markings": updated_markings,
+            "genotype": updated_genotype,
+            "birthDate": updated_birth_date,
+            "is_breeder": is_breeder,
+            "last_litter_date": updated_last_litter_date,
+        }
+
+        try:
+            self.db.update_mouse(selected_id, updates)
+            logging.debug(f"Mouse {selected_id} data updated in DB.")
+            self.gui.determine_save_status() # Use gui's method to update save button state
+            QMessageBox.information(self, "Success", f"Mouse entry {selected_id} updated.")
+            self._close_and_refresh()
+        except Exception as e:
+            logging.error(f"Error updating mouse {selected_id}: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to update mouse {selected_id}: {e}")
 
     #########################################################################################################################
 
@@ -356,10 +351,3 @@ class MouseEditor(QtWidgets.QDialog):
         self.gui.redraw_canvas()
         self.gui.determine_save_status()
         logging.debug("Edit window closed and GUI refreshed.")
-
-    def _update_id_animation(self):
-        """Updates the ID display with a random ID."""
-        if self.reroll_active:
-            self.disp_id_entry.setText(muh.generate_random_id())
-        else:
-            self.reroll_timer.stop()

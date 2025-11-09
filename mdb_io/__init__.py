@@ -1,5 +1,5 @@
-from .db import Mouse_DB
+from .db import MouseDB
 
 __all__ = {
-    Mouse_DB
+    MouseDB
 }

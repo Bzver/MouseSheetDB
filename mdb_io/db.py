@@ -1,10 +1,12 @@
 import sqlite3
-import os
-import logging
-import traceback
+import random
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union
+from datetime import date
+
+import logging
+import traceback
 
 class MouseDB:
     def __init__(self, db_path: Optional[str] = None):
@@ -16,7 +18,7 @@ class MouseDB:
         if db_path:
             self.set_db_path(db_path)
 
-    def set_db_path(self, db_path: str):
+    def set_db_path(self, db_path: str): 
         """Set database path and (re)connect."""
         self.path = Path(db_path).resolve()
         try:
@@ -81,8 +83,67 @@ class MouseDB:
             row = cur.fetchone()
             return dict(row) if row else None
 
+    def get_all_mice(self) -> Dict[str, Dict[str, Any]]:
+        """Get all mice, returned as a dictionary keyed by mouse ID."""
+        with self._get_cursor() as cur:
+            cur.execute("SELECT * FROM mice")
+            return {row['ID']: dict(row) for row in cur.fetchall()}
+
+    def add_multiple_mice(self, mice_data: List[Dict[str, Any]]):
+        """Insert multiple new mice."""
+        if not mice_data:
+            return
+
+        # Assuming all mice_data dicts have the same keys for columns
+        # and 'id' is always present.
+        sample_mouse = mice_data[0]
+        columns = [k for k in sample_mouse.keys() if k != 'ID']
+        placeholders = ", ".join(["?"] * len(columns))
+        cols = ", ".join(columns)
+
+        sql = f"INSERT INTO mice (ID, {cols}) VALUES (?, {placeholders})"
+        
+        values_to_insert = []
+        for mouse_data in mice_data:
+            # Ensure 'ID' is present and handle potential missing keys by providing None
+            row_values = [mouse_data.get('ID')] + [mouse_data.get(c) for c in columns]
+            values_to_insert.append(row_values)
+
+        with self._get_cursor() as cur:
+            cur.executemany(sql, values_to_insert)
+            logging.debug(f"Inserted {len(mice_data)} mice.")
+
+    def clear_mice_table(self):
+        """Clear all entries from the mice table."""
+        with self._get_cursor() as cur:
+            cur.execute("DELETE FROM mice")
+        logging.info("Mice table cleared.")
     def add_mouse(self, mouse_data: Dict[str, Any]) -> str:
-        """Insert new mouse. Returns inserted ID."""
+        """Insert new mouse. Generates ID if not provided. Returns inserted ID."""
+        if not mouse_data.get('id'):
+            # Generate ID if not provided
+            genotype = mouse_data.get('genotype', '')
+            birth_date_str = str(mouse_data.get('birthDate', date.today()))
+            markings = mouse_data.get('markings', '')
+            sex = mouse_data.get('sex', '')
+            cage = mouse_data.get('cage_id', '')
+
+            genoID = self._process_genotypeID(genotype)
+            dobID = self._process_birthDateID(birth_date_str)
+            toeID = self._process_toeID(markings if markings else "")
+            sexID = self._process_sexID(sex)
+            cageID = self._process_cageID(cage)
+            generated_id = f"{genoID}{dobID}{toeID}{sexID}{cageID}"
+            
+            # Ensure generated ID is unique
+            counter = 0
+            final_id = generated_id
+            while self.get_mouse(final_id):
+                counter += 1
+                final_id = f"{generated_id}_{counter}"
+            mouse_data['id'] = final_id
+            logging.debug(f"Generated ID for new mouse: {final_id}")
+
         columns = [k for k in mouse_data.keys() if k != 'id']
         placeholders = ", ".join(["?"] * len(columns))
         cols = ", ".join(columns)
@@ -93,6 +154,105 @@ class MouseDB:
         with self._get_cursor() as cur:
             cur.execute(sql, values)
             return mouse_data['id']
+
+    def _process_genotypeID(self, genotype: str) -> str:
+        """Convert genotype to numeric code"""
+        genotype_map = {
+            "hom-PP2A": "1",
+            "PP2A(w/-)": "2",
+            "PP2A(f/w)": "3",
+            "NEX-CRE-PP2A(f/w)": "4",
+            "CMV-CRE": "5",
+            "NEX-CRE": "6",
+            "CMV-CRE-PP2A(f/w)": "7"
+        }
+        return genotype_map.get(str(genotype), str(random.randint(8,9)))
+
+    def _process_birthDateID(self, bdate: date) -> str:
+        """Convert birthdate to YYMMDD format"""
+        try:
+            if isinstance(bdate, str):
+                bdate = mio.convert_to_date(bdate) # Use io_helper's date conversion
+            return bdate.strftime("%y%m%d") if bdate else "000000"
+        except Exception as e:
+            logging.error(f"Error processing birth date: {e}\n{traceback.format_exc()}")
+            return "000000"
+
+    def _process_toeID(self, toe: str) -> str:
+        """Extract toe number or generate random if invalid"""
+        toe_str = str(toe)
+        toe_str = f"toe{toe_str}" if not toe_str.startswith("toe") else toe_str
+        toe_num = toe_str.split("toe")[1]
+        try:
+            int(toe_num)
+        except:
+            return "69"
+        if len(toe_num) == 1:
+            return f"0{toe_num}"
+        if len(toe_num) == 2:
+            return toe_num
+        return "69"
+
+    def _process_sexID(self, sex: str) -> str:
+        """Generate sex ID (odd for male, even for female)"""
+        return str(random.choice([1, 3, 5, 7, 9])) if sex == "M" else str(random.choice([0, 2, 4, 6, 8]))
+
+    def _process_cageID(self, cage: str) -> str:
+        """Process cage number with consistent formatting.
+        Rules:
+        1. If no -A- or -B- designation, return random valid 6-digit number
+        2. If -A- or -B- appears AND prefix is 2 or 8:
+        - For -A-: Insert random 1-5
+        - For -B-: Insert random 6-9
+        3. Otherwise return random valid 6-digit number
+        """
+        cage_str = str(cage).strip()
+
+        if "-A-" in cage_str:
+            parts = cage_str.replace("-", "").split("A")
+            prefix = parts[0]
+            if prefix in ("2","8"):
+                suffix = parts[1] if len(parts) > 1 else ""
+                suffix_purged = self._purge_leading_zeros(suffix.zfill(4),4)
+                return f"{prefix}{random.randint(1, 5)}{suffix_purged}"
+        if "-B-" in cage_str:
+            parts = cage_str.replace("-", "").split("B")
+            prefix = parts[0]
+            if prefix in ("2","8"):
+                suffix = parts[1] if len(parts) > 1 else ""
+                suffix_purged = self._purge_leading_zeros(suffix.zfill(4),4)
+                return f"{prefix}{random.randint(6, 9)}{suffix_purged}"
+            
+        return str(self._roll_with_rickroll())
+
+    def _generate_random_id(self):
+        return "".join([str(random.randint(0, 9)) for _ in range(16)])
+
+    def _roll_with_rickroll(self):
+        while True:
+            num = random.randint(100000, 999999)
+            # Check if number is in forbidden ranges
+            if (200000 <= num <= 299999) or (800000 <= num <= 899999):
+                continue  # Re-roll
+            else:
+                return f"{num:06d}"  # Valid number
+            
+    def _purge_leading_zeros(self, s:str, digits:int):
+        # Truncate if longer than required
+        if len(s) > digits:
+            s = s[-digits:]
+        else:
+            # Pad with zeros if shorter
+            s = s.zfill(digits)
+        result = []
+        zero_run = True  # Track if we"re still in leading zeros
+        for c in s:
+            if c == "0" and zero_run:
+                result.append(str(random.randint(1, 9)))
+            else:
+                result.append(c)
+                zero_run = False
+        return "".join(result)[:digits].ljust(digits, "0")
 
     def update_mouse(self, mouse_id: str, updates: Dict[str, Any]):
         """Update mouse fields."""

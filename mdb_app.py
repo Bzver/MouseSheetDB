@@ -1,12 +1,11 @@
 from PySide6 import QtWidgets
 from PySide6.QtWidgets import QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox
 
-import mdb_io.io_helper as mio
 import utils.mdb_plot as mplt
 import utils.mdb_vis as mvis
 import utils.mdb_edit as medit
 import utils.mdb_transfer as mtrans
-from mdb_io import Mouse_DB
+from mdb_io.db import MouseDB
 
 import traceback
 import logging
@@ -41,6 +40,10 @@ class MDB_App(QWidget):
         self.browse_button = QPushButton("Browse")
         self.browse_button.clicked.connect(self.browse_file)
         self.button_layout.addWidget(self.browse_button)
+
+        self.new_db_button = QPushButton("New DB")
+        self.new_db_button.clicked.connect(self.create_new_db)
+        self.button_layout.addWidget(self.new_db_button)
 
         self.table_button = QPushButton("Table")
         self.table_button.clicked.connect(self._on_table_btn_clicked)
@@ -102,7 +105,7 @@ class MDB_App(QWidget):
         self.category_names = ["DEFAULT"]
 
         self.visualizer, self.editor, self.plotter = None, None, None
-        self.db = Mouse_DB()
+        self.db = MouseDB()
         
         self.canvas_widget = None
         self.last_action = "table"
@@ -119,6 +122,35 @@ class MDB_App(QWidget):
         self.table_button.setEnabled(False)
         self.save_button.setEnabled(False)
         self.add_entries_button.setEnabled(False)
+
+    def create_new_db(self):
+        logging.debug("create_new_db called.")
+        if not self.is_saved:
+            reply = QMessageBox.question(self, "Unsaved Changes",
+            "You have unsaved changes. Do you really want to create a new DB without saving?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Create New Database", "", "DB Files (*.db)"
+        )
+        if not file_path:
+            return
+
+        try:
+            self._reset_state()
+            self.db.set_db_path(file_path)
+            self.file_path = file_path
+            self.is_saved = True
+            QMessageBox.information(self, "Success", f"New database created at {file_path}")
+            self.load_changelog_button.setEnabled(True)
+            self.add_entries_button.setEnabled(True)
+            self._on_category_selection_changed()
+            logging.debug(f"New database created and initialized at {file_path}")
+        except Exception as e:
+            logging.error(f"Error creating new database: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Error creating new database: {e}\n{traceback.format_exc()}")
 
     #########################################################################################################################
 
@@ -142,8 +174,6 @@ class MDB_App(QWidget):
         try:
             if file_path.endswith(".db"):
                 self._load_db_file(file_path)
-            else:
-                self._load_excel_file(file_path)
             QMessageBox.information(self, "Success", "File loaded successfully!")
             self.load_changelog_button.setEnabled(True)
             self.add_entries_button.setEnabled(True)
@@ -152,24 +182,30 @@ class MDB_App(QWidget):
         except Exception as e:
             logging.error(f"Error loading/preprocessing file: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Error loading/preprocessing file: {e}\n{traceback.format_exc()}")
-
+ 
     def _load_db_file(self, file_path):
         self.db.set_db_path(file_path)
-
-    def _load_excel_file(self, file_path):   # To be changed to load excel into DB
-        mio.validate_excel(file_path)
-        processed_data = mio.data_preprocess(file_path, "MDb")
-        mouse_dict = self.processed_data.copy()
+        self.mouse_dict = self.db.get_all_mice() # Reload mouse_dict from DB
         self._update_control_ui()
-        if processed_data is None:
-            raise Exception("Failed to preprocess Excel data")
-        logging.debug("Excel file loaded and preprocessed successfully.")
-
-    def save_changes(self):
-        pass # To be re-implemented in sql backend
-
+        logging.debug("DB file loaded successfully.")
+        
     def load_changelog(self):
-        pass # To be re-implemented in sql backend
+        try:
+            output_file = self.db.export_pending_actions()
+            if output_file:
+                QMessageBox.information(self, "Export Successful", f"Pending actions exported to:\n{output_file}")
+                logging.info(f"Pending actions exported to: {output_file}")
+            else:
+                QMessageBox.information(self, "Export", "No pending actions to export.")
+                logging.info("No pending actions to export.")
+        except Exception as e:
+            logging.error(f"Error exporting pending actions: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Error exporting pending actions: {e}\n{traceback.format_exc()}")
+ 
+    def save_changes(self):
+        QMessageBox.information(self, "Info", "Save functionality is now handled by the database. Changes are automatically persisted.")
+        self.is_saved = True
+        self.save_button.setEnabled(False)
 
     #########################################################################################################################
 
@@ -209,12 +245,7 @@ class MDB_App(QWidget):
     #########################################################################################################################
 
     def determine_save_status(self):
-        if mio.find_changes_for_changelog(self.processed_data, self.mouse_dict, check_only=True):
-            self.is_saved = False
-            self.save_button.setEnabled(True)
-        else:
-            self.is_saved = True
-            self.save_button.setEnabled(False)
+        pass
 
     def redraw_canvas(self):
         """Public method to trigger canvas redraw based on current state."""
@@ -319,15 +350,14 @@ class MDB_App(QWidget):
         self.selected_mouse = None
 
     def add_new_mouse_entry(self):
-        self.editor = medit.MouseEditor(self, self.mouse_dict, None, mode="new")
+        self.editor = medit.MouseEditor(self, self.db, None, mode="new")
         self.editor.exec()
 
     def edit_selected_mouse_entry(self):
         self.selected_mouse = self.visualizer.selected_mouse
-        self.editor = medit.MouseEditor(self, self.mouse_dict, self.selected_mouse, mode="edit")
+        self.editor = medit.MouseEditor(self, self.db, self.selected_mouse, mode="edit")
         self.editor.exec()
         self.selected_mouse = None
-
     #########################################################################################################################
 
     def commit_seppuku(self, event):
